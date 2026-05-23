@@ -1,0 +1,6 @@
+[submodule "submodules/slang-gaussian-rasterization"]
+	path = submodules/slang-gaussian-rasterization
+	url = https://github.com/polanskers/slang-gaussian-rasterization.git
+[submodule "submodules/tiny-cuda-nn"]
+	path = submodules/tiny-cuda-nn
+	url = https://github.com/NVlabs/tiny-cuda-nn.git

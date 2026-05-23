@@ -1,0 +1,30 @@
+jit_fusion: false
+center_xyz: true
+sh_weights_k: 0.2
+
+encoding:
+    otype: HashGrid
+    n_levels: 13
+    n_features_per_level: 8
+    log2_hashmap_size: 23
+    base_resolution: 2
+    per_level_scale: 2.0
+    interpolation: Smoothstep
+opacity_network:
+    otype: FullyFusedMLP
+    activation: LeakyReLU
+    output_activation: None
+    n_neurons: 32
+    n_hidden_layers: 1
+color_network:
+    otype: FullyFusedMLP
+    activation: None
+    output_activation: None
+    n_neurons: 32
+    n_hidden_layers: 0
+scaling_rotation_network:
+    otype: FullyFusedMLP
+    activation: LeakyReLU
+    output_activation: None
+    n_neurons: 32
+    n_hidden_layers: 1

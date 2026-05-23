@@ -1,0 +1,7 @@
+random_background: true
+white_background: false
+resolution: 4
+num_samples_min: 5_200_000
+iterations: 30_000
+refinement_iterations: 5000
+save_iterations: [30_000, 35_000]
