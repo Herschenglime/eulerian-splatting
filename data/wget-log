@@ -1,0 +1,11 @@
+--2026-11-08 15:42:02--  https://claude.com/cai/oauth/authorize?code=true
+Resolving claude.com (claude.com)... 2607:6bc0::10, 160.79.104.10
+Connecting to claude.com (claude.com)|2607:6bc0::10|:443... connected.
+HTTP request sent, awaiting response... 307 Temporary Redirect
+Location: https://claude.ai/oauth/authorize?code=true [following]
+--2026-11-08 15:42:02--  https://claude.ai/oauth/authorize?code=true
+Resolving claude.ai (claude.ai)... 2607:6bc0::10, 160.79.104.10
+Connecting to claude.ai (claude.ai)|2607:6bc0::10|:443... connected.
+HTTP request sent, awaiting response... 403 Forbidden
+2026-11-08 15:42:02 ERROR 403: Forbidden.
+
