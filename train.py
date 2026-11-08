@@ -10,6 +10,7 @@
 
 import os
 import json
+import time
 import yaml
 import torch
 import re
@@ -23,7 +24,7 @@ from models.gaussian_model import GaussianModel
 from utils.general_utils import safe_state
 from utils.system_utils import mkdir_p, searchForMaxIteration
 import uuid
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams, GaussianParams
@@ -41,8 +42,16 @@ try:
 except ImportError:
     WANDB_FOUND = False
 
-def training(dataset, gaussian_params, opt, pipe, test_iterations, test_interval, saving_iterations, checkpoint_iterations, checkpoint, load_ply, debug_from, dry_run=True, visualize=True, seed=42, log_level=2):
+def training(dataset, gaussian_params, opt, pipe, test_iterations, test_interval, saving_iterations, checkpoint_iterations, checkpoint, load_ply, debug_from, dry_run=True, visualize=True, seed=42, log_level=2, progress_callback=None):
     logging.set_verbosity(log_level)
+
+    # Optional progress hook (used by utils/notebook_progress.py). Called as
+    # progress_callback(event, info) with event in
+    # {"stage", "start", "iter", "phase", "eval", "save", "checkpoint", "end"}.
+    def notify(event, **info):
+        if progress_callback is not None:
+            progress_callback(event, info)
+    notify("stage", msg="Initializing logging")
 
     if WANDB_FOUND:
         if not dry_run:
@@ -64,12 +73,15 @@ def training(dataset, gaussian_params, opt, pipe, test_iterations, test_interval
     first_iter = 0
     tb_writer, wandb_writer, dataset = prepare_output_and_logger(dataset, gaussian_params)
 
+    notify("stage", msg="Building probability pyramid + hash grids", model_path=dataset.model_path)
     generator = torch.Generator("cuda").manual_seed(seed)
     gaussians = GaussianModel(gaussian_params,
                               dataset.sh_degree,
                               dataset.refinement,
                               generator=generator)
+    notify("stage", msg="Loading scene / cameras")
     scene = Scene(dataset, gaussians)
+    notify("stage", msg="Setting up optimizer")
     gaussians.training_setup(opt)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint, weights_only=False)
@@ -105,7 +117,24 @@ def training(dataset, gaussian_params, opt, pipe, test_iterations, test_interval
     progress_bar.update(first_iter)
     first_iter += 1
 
-    for iteration in range(first_iter, opt.iterations + opt.refinement_iterations + 1):        
+    last_iter = opt.iterations + opt.refinement_iterations
+    if progress_callback is not None:
+        # Per-stage CUDA events; read lazily (forces a sync) only when the callback asks.
+        stage_names = ["sample", "render", "loss", "backward", "log/save/step"]
+        stage_ev = [torch.cuda.Event(enable_timing=True) for _ in range(len(stage_names) + 1)]
+        def stage_timings():
+            stage_ev[-1].synchronize()
+            return {n: stage_ev[i].elapsed_time(stage_ev[i + 1]) for i, n in enumerate(stage_names)}
+        eval_iters = [i for i in range(first_iter, last_iter + 1)
+                      if i in test_iterations or (test_interval != -1 and i % test_interval == 0) or i == last_iter]
+        notify("start", first_iter=first_iter, last_iter=last_iter, prob_iters=opt.iterations,
+               refinement_iters=opt.refinement_iterations, eval_iters=eval_iters,
+               save_iters=sorted(i for i in saving_iterations if i >= first_iter),
+               n_train=len(scene.getTrainCameras()), n_test=len(scene.getTestCameras()),
+               model_path=scene.model_path)
+    mark = (lambda k: stage_ev[k].record()) if progress_callback is not None else (lambda k: None)
+
+    for iteration in range(first_iter, opt.iterations + opt.refinement_iterations + 1):
         # if network_gui.conn == None:
         #     network_gui.try_connect()
         # while network_gui.conn != None:
@@ -138,13 +167,18 @@ def training(dataset, gaussian_params, opt, pipe, test_iterations, test_interval
             gaussians.refinement == False):
             gaussians.convert2refinement(opt)
             logging.info("Starting refinement...")
+            notify("phase", iteration=iteration, phase="refinement",
+                   num_gaussians=gaussians.get_xyz.shape[0])
 
+        mark(0)
         if not gaussians.refinement:
             gaussians.sample(iteration)
+        mark(1)
 
         bg = torch.rand((3), device="cuda") / 2 if opt.random_background else background
         render_pkg = render(viewpoint_cam, gaussians, pipe, bg, extras=gaussians.render_extras)
         image = render_pkg["render"]
+        mark(2)
 
         # Loss
         gt_image = viewpoint_cam.original_image
@@ -165,10 +199,12 @@ def training(dataset, gaussian_params, opt, pipe, test_iterations, test_interval
             
             loss = loss + opt.opacity_reg * opacity_reg_val
             loss = loss + opt.scale_reg * scale_reg_val
-            loss = loss + opt.sh_weights_reg * sh_weights_val            
+            loss = loss + opt.sh_weights_reg * sh_weights_val
 
+        mark(3)
         loss.backward()
         iter_end.record()
+        mark(4)
 
         with torch.no_grad():
             # Progress bar
@@ -181,28 +217,45 @@ def training(dataset, gaussian_params, opt, pipe, test_iterations, test_interval
 
             # Log and save
             elapsed = iter_start.elapsed_time(iter_end) if iteration % 10 == 0 else None
-            training_report(tb_writer, wandb_writer, iteration, Ll1, loss, l1_loss, elapsed, test_iterations, test_interval, checkpoint,
+            t_eval = time.perf_counter()
+            eval_results = training_report(tb_writer, wandb_writer, iteration, Ll1, loss, l1_loss, elapsed, test_iterations, test_interval, checkpoint,
                             load_ply, first_iter, opt.iterations + opt.refinement_iterations, visualize,
                             scene, render, (pipe, background))
+            if eval_results:
+                notify("eval", iteration=iteration, results=eval_results,
+                       seconds=time.perf_counter() - t_eval, model_path=scene.model_path)
 
             if (iteration in saving_iterations):
+                t_save = time.perf_counter()
                 scene.save(iteration)
+                notify("save", iteration=iteration, seconds=time.perf_counter() - t_save)
 
             if (iteration in checkpoint_iterations):
                 save_path = os.path.join(scene.model_path, "checkpoints",
                                              "checkpoint_" + str(iteration) + ".pth")
                 logging.info("\n[ITER {}] Saving Checkpoint to {:s}".format(iteration, save_path))
                 mkdir_p(os.path.dirname(save_path))
+                t_save = time.perf_counter()
                 torch.save((gaussians.capture(), iteration), save_path)
+                notify("checkpoint", iteration=iteration, path=save_path, seconds=time.perf_counter() - t_save)
 
             # Optimizer step
             if iteration < opt.iterations + opt.refinement_iterations:
                 gaussians.optimizer.step()
                 gaussians.optimizer.zero_grad(set_to_none = True)
+            mark(5)
+
+            if progress_callback is not None:
+                notify("iter", iteration=iteration, last_iter=last_iter,
+                       phase="refinement" if gaussians.refinement else "probabilistic",
+                       loss=loss, l1=Ll1, num_gaussians=gaussians.get_xyz.shape[0],
+                       image=image, gt=gt_image, cam_name=viewpoint_cam.image_name,
+                       timings=stage_timings)
 
 
     if WANDB_FOUND and (not dry_run):
         wandb.finish()
+    notify("end", model_path=scene.model_path)
     return scene.model_path
 
 def to_namespace(obj):
@@ -285,6 +338,7 @@ def training_report(tb_writer, wandb_writer, iteration, Ll1, loss, l1_loss, elap
     if (iteration in test_iterations) or ((iteration % test_interval == 0) and (test_interval != -1)) or ((checkpoint is not None) and (iteration == first_iter)) or ((load_ply is not None) and (iteration == first_iter)) or (iteration == last_iter):
         
         torch.cuda.empty_cache()
+        results = {}
         validation_configs = ({'name': 'test', 'cameras' : scene.getTestCameras()}, 
                               {'name': 'train', 'cameras' : [scene.getTrainCameras()[idx % len(scene.getTrainCameras())] for idx in range(5, 30, 5)]})
 
@@ -336,6 +390,8 @@ def training_report(tb_writer, wandb_writer, iteration, Ll1, loss, l1_loss, elap
                 ssim_test /= len(config['cameras'])
                 
                 print("\n[ITER {}] Evaluating {}: L1 {} PSNR {} SSIM {} LPIPS {}".format(iteration, config['name'], l1_test, psnr_test, ssim_test, lpips_test))
+                results[config['name']] = {"l1": float(l1_test), "psnr": float(psnr_test),
+                                           "ssim": float(ssim_test), "lpips": float(lpips_test)}
                 if tb_writer:
                     tb_writer.add_scalar(config['name'] + '/loss_viewpoint - l1_loss', l1_test, iteration)
                     tb_writer.add_scalar(config['name'] + '/loss_viewpoint - psnr', psnr_test, iteration)
@@ -353,6 +409,8 @@ def training_report(tb_writer, wandb_writer, iteration, Ll1, loss, l1_loss, elap
                                    scene.model_path, save=True, show=visualize)
 
         torch.cuda.empty_cache()
+        return results
+    return None
 
 if __name__ == "__main__":
     from run import train_model

@@ -11,7 +11,7 @@
 import os
 from os import makedirs
 import sys
-from tqdm import tqdm
+from tqdm.auto import tqdm
 import torch
 import torchvision
 

@@ -154,7 +154,7 @@ def get_combined_args(parser: ArgumentParser, cli_args=None, load_checkpoint=Non
     
     return args
 
-def train_model(cli_args=None, **overrides):
+def train_model(cli_args=None, progress_callback=None, **overrides):
     args_list = cli_args if cli_args is not None else []
 
     cli_parsed, _ = parser.parse_known_args(args_list)
@@ -198,7 +198,8 @@ def train_model(cli_args=None, **overrides):
         args.load_ply,
         args.debug_from,
         args.dry_run,
-        args.visualize
+        args.visualize,
+        progress_callback=progress_callback,
     )
 
 def render_model(cli_args=None, **overrides):
