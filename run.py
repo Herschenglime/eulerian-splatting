@@ -43,7 +43,7 @@ parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
 parser.add_argument("--load_checkpoint", type=str, default=None)
 parser.add_argument("--load_ply", type=str, default=None)
 parser.add_argument("--dry_run", action="store_true", default=False)
-parser.add_argument("--torch_cuda_arch_list", type=str, default = '8.0;8.9')
+parser.add_argument("--torch_cuda_arch_list", type=str, default = '8.0;8.9;10.0')
 
 # args for rendering
 parser.add_argument("--eval_iteration", default=-1, type=int)
