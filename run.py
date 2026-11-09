@@ -45,6 +45,12 @@ parser.add_argument("--load_ply", type=str, default=None)
 parser.add_argument("--dry_run", action="store_true", default=False)
 parser.add_argument("--torch_cuda_arch_list", type=str, default = '8.0;8.9')
 
+# args for timelapse snapshots (see utils/snapshot_utils.py)
+parser.add_argument("--snapshot_iterations", nargs="+", type=int, default=[])
+parser.add_argument("--snapshot_views", nargs="+", type=int, default=[0])
+parser.add_argument("--snapshot_max_points", type=int, default=500_000)
+parser.add_argument("--snapshot_center_scale", type=float, default=0.002)
+
 # args for rendering
 parser.add_argument("--eval_iteration", default=-1, type=int)
 parser.add_argument("--skip_train", action="store_true", default=False)
@@ -198,7 +204,13 @@ def train_model(cli_args=None, **overrides):
         args.load_ply,
         args.debug_from,
         args.dry_run,
-        args.visualize
+        args.visualize,
+        snapshot_args={
+            "iterations": args.snapshot_iterations,
+            "views": args.snapshot_views,
+            "max_points": args.snapshot_max_points,
+            "center_scale": args.snapshot_center_scale,
+        },
     )
 
 def render_model(cli_args=None, **overrides):

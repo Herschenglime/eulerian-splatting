@@ -28,6 +28,7 @@ from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams, GaussianParams
 from utils.viz_utils import visualize_test
+from utils.snapshot_utils import snapshot_cameras, take_snapshot
 from absl import logging
 
 try:
@@ -41,7 +42,7 @@ try:
 except ImportError:
     WANDB_FOUND = False
 
-def training(dataset, gaussian_params, opt, pipe, test_iterations, test_interval, saving_iterations, checkpoint_iterations, checkpoint, load_ply, debug_from, dry_run=True, visualize=True, seed=42, log_level=2):
+def training(dataset, gaussian_params, opt, pipe, test_iterations, test_interval, saving_iterations, checkpoint_iterations, checkpoint, load_ply, debug_from, dry_run=True, visualize=True, seed=42, log_level=2, snapshot_args=None):
     logging.set_verbosity(log_level)
 
     if WANDB_FOUND:
@@ -95,6 +96,10 @@ def training(dataset, gaussian_params, opt, pipe, test_iterations, test_interval
     test_iterations = set(test_iterations)
     saving_iterations = set(saving_iterations)
     checkpoint_iterations = set(checkpoint_iterations)
+
+    snapshot_args = snapshot_args or {}
+    snapshot_iterations = set(snapshot_args.get("iterations", []))
+    snapshot_cams = snapshot_cameras(scene, snapshot_args.get("views", [0])) if snapshot_iterations else []
 
     iter_start = torch.cuda.Event(enable_timing = True)
     iter_end = torch.cuda.Event(enable_timing = True)
@@ -199,6 +204,16 @@ def training(dataset, gaussian_params, opt, pipe, test_iterations, test_interval
             if iteration < opt.iterations + opt.refinement_iterations:
                 gaussians.optimizer.step()
                 gaussians.optimizer.zero_grad(set_to_none = True)
+
+            # Timelapse snapshot (after the step, so it reflects this iteration's update)
+            if iteration in snapshot_iterations:
+                try:
+                    take_snapshot(iteration, gaussians, snapshot_cams, render, pipe,
+                                  os.path.join(scene.model_path, "snapshots"),
+                                  max_points=snapshot_args.get("max_points", 500_000),
+                                  center_scale=snapshot_args.get("center_scale", 0.002))
+                except Exception as e:  # never kill a long run over a visualization
+                    logging.warning("Snapshot at iteration {} failed: {}".format(iteration, e))
 
 
     if WANDB_FOUND and (not dry_run):

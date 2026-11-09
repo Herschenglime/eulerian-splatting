@@ -6,7 +6,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Official code for *Eulerian Gaussian Splatting using Hashed Probability Pyramids* (Polansky et al., CVPR 2026, arXiv 2605.29136), cloned as our group's fork for the EEL5406 Computational Photography final project (UF, Fall 2026). `origin` is the group fork (Herschenglime/eulerian-splatting) and `upstream` is euleriansplatting/eulerian-splatting. Upstream has a single commit ("Initial code release").
 
-Project goal: reproduce the paper's results, then run the method on our own captured scenes and find where it breaks. The instructor's feedback was to "push it to its boundaries", not just show it working. The group's notes list these stress tests: few views, bad lighting, heavy specularities, occlusion, underwater, a very large scene (a whole classroom), and different pose sources.
+Project goal: reproduce the paper's results, then run the method on our own captured scenes and find where it breaks. The instructor's feedback was to "push it to its boundaries", not just show it working. With about a week left, the goal is **visual results, not metric sweeps**: pick the experiments whose failures are easiest to see.
+
+Agreed scope, in priority order:
+1. Reproduce one benchmark scene (truck or bicycle) next to ground truth, plus a fly-through.
+2. One well-captured "hero" scene of our own (tabletop with stuffed animals), with a fly-through.
+3. A training timelapse showing samples condensing from a uniform cloud (`--snapshot_iterations`).
+4. A views ladder on the hero capture (all → ~30 → ~10 views) using `--train_subset`, with poses from the full COLMAP run.
+5. A mirror or glossy object (reflections reconstructed as a fake "room behind the glass").
+- Stretch: a person holding still; the whole classroom.
+- Cut: underwater, SLAM poses, low light, auto-exposure comparisons, checkerboard calibration. Poses come from COLMAP; phone captures use locked exposure/ISO/white balance/focus, one lens, stabilization off, shutter around 1/250 s or faster.
 
 Course materials are outside this repo, in `/Users/paul/School/EEL5406 Comp Phot/Final Project/`:
 - `2605.29136v1(1).pdf`: the paper with its appendix. Read it with the PDF tooling.
@@ -16,12 +25,28 @@ Course materials are outside this repo, in `/Users/paul/School/EEL5406 Comp Phot
 
 - **Requires CUDA.** Device `"cuda"` is hard-coded throughout. The attribute grids use tiny-cuda-nn, the rasterizer is written in Slang, and sampling uses a CUDA kernel that is JIT-compiled at runtime. Nothing here runs on this Mac, so edit the code here and train on a Linux machine with an NVIDIA GPU. The paper's numbers come from an H200 (~3.5 h for 35K iterations, ~7.25 h for 65K).
 - **The submodules are not checked out in this clone.** `submodules/*` are empty, so run `git submodule update --init --recursive` before installing. `slang-gaussian-rasterization` points to the authors' fork (polanskers), not the upstream rasterizer, because the custom gradient is implemented there.
-- Setup (from the README): Python 3.9, PyTorch 2.4.1+cu121, and the CUDA 12.1 toolkit from conda. Then `pip install wandb==0.17.5 plyfile torchinfo matplotlib absl-py tqdm slangtorch==1.3.4 setuptools==73.0.1`, `pip install ./submodules/slang-gaussian-rasterization`, and `TCNN_HALF_PRECISION=0 pip install ./submodules/tiny-cuda-nn/bindings/torch`.
-- `--torch_cuda_arch_list` sets `TORCH_CUDA_ARCH_LIST` before the sampling kernel compiles. The default is `"8.0;8.9"`; the README uses `"9.0"` for H100/H200. If the compile fails, `sample_cuda` logs a warning and silently falls back to the much slower PyTorch `sample` path, so check the log.
+- **Our environment is a uv project** (`pyproject.toml`, `uv.lock`), moved forward from the README's pins so it runs on Blackwell GPUs: Python 3.10, `torch==2.7.1` / `torchvision==0.22.1` from the cu128 index on Linux (CPU wheels on macOS, for tests only). `uv sync` installs everything except the CUDA submodules, which are built against the installed torch:
+  ```bash
+  uv sync
+  uv pip install --no-build-isolation ./submodules/slang-gaussian-rasterization
+  TCNN_HALF_PRECISION=0 uv pip install --no-build-isolation ./submodules/tiny-cuda-nn/bindings/torch
+  ```
+  `slangtorch` has no macOS wheels, so it is only installed on Linux/Windows. The README's original Python 3.9 / PyTorch 2.4.1+cu121 setup is what the paper used; Blackwell (B200 = 10.0, RTX PRO 6000 = 12.0) needs CUDA 12.8 and PyTorch ≥ 2.7. HiPerGator's current GPUs are L4, RTX PRO 6000 and B200 (the A100s were retired).
+- `--torch_cuda_arch_list` sets `TORCH_CUDA_ARCH_LIST` before the sampling kernel compiles. The default is `"8.0;8.9"`; use `"8.9"` for an RTX 40xx, `"10.0"` for B200, `"12.0"` for RTX PRO 6000. If the compile fails, `sample_cuda` logs a warning and silently falls back to the much slower PyTorch `sample` path, so check the log.
 
 ## Commands
 
-There are no tests or linter. The entry points are:
+**Tests** run on CPU (any machine, including the Mac) with the GPU-only modules stubbed out:
+
+```bash
+uv run pytest                       # all tests
+uv run pytest tests/test_snapshots.py -k timelapse   # one test
+uv run pyflakes utils scripts tests
+```
+
+They cover our additions (PLY export, `--train_subset` through the real COLMAP loader, snapshot logic and CLI wiring), not the CUDA paths. On a new GPU machine, run `scripts/gpu_smoke_test.sh /path/to/tandt/truck` first (~15 min). It trains a tiny truck run with every new feature switched on, then renders, scores, exports and builds a timelapse, and checks that all expected files exist. `tests/out/test_shapes.ply` (written by the tests) is a converted PLY of RGB axes and a yellow cube for checking the export by eye in https://superspl.at/editor.
+
+The entry points are:
 
 ```bash
 # full pipeline: train -> render -> metrics
@@ -34,7 +59,17 @@ python metrics.py --model_paths output/bicycle/<run> [more runs...]
 
 # resume
 python train.py --config=bicycle --source_path=... --dry_run --load_checkpoint=<model_path>/checkpoints/checkpoint_N.pth
+
+# our additions
+python train.py ... --train_subset=30                             # views ladder
+python train.py ... --snapshot_iterations 1 500 2000 5000 30000 [--snapshot_views 0 3]
+python scripts/make_timelapse.py output/<scene>/<run>             # -> snapshots/timelapse_view*.gif, contact_view*.png
+python scripts/export_ply.py <run>/point_cloud/iteration_N.ply out.ply [--min_opacity 0.005] [--sh_degree 0]
 ```
+
+- `--train_subset N` keeps N evenly spaced training views (by filename), applied *after* the test split and *after* the scene normalization, so every run of a views ladder has the same test set and coordinate frame. The kept names go to `<run>/train_subset.txt`. Use it instead of `--load_ncameras`.
+- `--snapshot_iterations` (off by default) writes `<run>/snapshots/iter_N_view{k}_render.png`, `..._centers.png` (every Gaussian shrunk to an opaque dot, to show where samples are) and `iter_N_gaussians.ply` (a random subset, standard format, SH degree 0). Views index the test cameras. A failed snapshot logs a warning and never stops training.
+- **Saved PLYs are not in the standard 3DGS format**: `save_ply` writes activated opacity (0–1) and world-unit scales, while viewers expect a logit and a log. Always run `scripts/export_ply.py` before opening one in SuperSplat or another viewer; otherwise the scene looks like huge semi-transparent blobs.
 
 - `--dry_run` turns wandb off. Without it, the run calls `wandb.login()`. Tensorboard logging is used if it is installed.
 - `--test_interval=5000` evaluates more often. On headless machines, pass `--disable_visualize`; the test-grid PNG is still saved to the run folder.
@@ -59,11 +94,11 @@ python train.py --config=bicycle --source_path=... --dry_run --load_checkpoint=<
 - `Scene` treats the source as a COLMAP scene if `<source_path>/sparse` exists, and as a Blender/NeRF-synthetic scene if `transforms_train.json` exists.
 - For COLMAP scenes, the loader reads `sparse/0/{cameras,images,points3D}.bin` (or `.txt`) and the images in `<source_path>/images` (change the folder with `--images`). **Only PINHOLE and SIMPLE_PINHOLE cameras are accepted**, so images must be undistorted. The repo has no `convert.py`. Run COLMAP's feature_extractor, a matcher, mapper, and image_undistorter, then move the undistorter's `sparse/*.bin` into `sparse/0/` (the same steps as 3DGS's `convert.py`).
 - **Camera poses are still required.** What the method removes is the SfM *point cloud* initialization: `init_type` defaults to `"random"`. Setting `init_type=sfm` only sets `xyz`, which the first `sample()` overwrites. The COLMAP-initialized pyramid from paper App. A4.5 is not implemented.
-- With `init_type=random`, the reader writes an unused PLY to `<source_path>/point_cloud/`. That directory must already exist and be writable (plyfile does not create it).
+- With `init_type=random`, the reader writes an unused PLY to `<source_path>/point_cloud/`, so the dataset folder must be writable. (Upstream crashed if that folder was missing; we now create it.)
 - `eval=True` holds out every 8th image, sorted by filename, as the test set.
 - `resolution` set to 1, 2, 4, or 8 downsamples the full-resolution `images/` in memory. `-1` caps the width at 1600, and any other value is used as a target width. All training images are preloaded to the GPU.
 - For RGBA images, alpha is used as a mask, and masked-out ground-truth pixels are filled with the random training background.
-- `--load_ncameras N` truncates the train and test lists separately and keeps N+1 of each (off by one). The PCA normalization still uses every training camera. For few-view experiments, subsample the images or the COLMAP model instead.
+- `--load_ncameras N` truncates the train and test lists separately and keeps N+1 of each (off by one). For few-view experiments use `--train_subset` instead.
 - Normalization: training camera centers are PCA-aligned and scaled into [-1,1]^3 (`transform_poses_pca`, applied in `Camera.__init__`). The L∞ contraction then gives that cube 3/4 of the pyramid's 4096 bins per axis and squeezes everything outside it into the outer shell. A consequence of this design (not yet tested): in inside-out captures, such as a camera walking through a room, most of the content falls outside the camera hull and gets coarse resolution.
 
 ## Architecture: paper to code

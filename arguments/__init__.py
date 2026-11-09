@@ -102,6 +102,7 @@ class ModelParams(ParamGroup):
         self.eval = True
         self.init_type = "random"
         self.load_ncameras = -1
+        self.train_subset = -1  # keep N evenly spaced training views; test set and normalization unchanged
         self.normalize_cameras = True
         self.refinement = False
         self.run_num = "000"

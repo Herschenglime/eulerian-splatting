@@ -1,0 +1,45 @@
+[project]
+name = "eulerian-splatting"
+version = "0.1.0"
+description = "Eulerian Gaussian Splatting (CVPR 2026), EEL5406 group fork updated for Blackwell GPUs"
+requires-python = "==3.10.*"
+dependencies = [
+    # Blackwell (sm_100 / sm_120) needs CUDA 12.8 builds of PyTorch >= 2.7.
+    # On Linux these resolve to the cu128 wheels; on macOS to CPU wheels (tests only).
+    "torch==2.7.1",
+    "torchvision==0.22.1",
+    "numpy<2.3",
+    "pillow",
+    "plyfile",
+    "pyyaml",
+    "absl-py",
+    "tqdm",
+    "matplotlib",
+    "torchinfo",
+    "wandb",
+    "slangtorch; sys_platform != 'darwin'",  # no macOS wheels; the rasterizer is GPU-only anyway
+]
+
+# The CUDA submodules (slang-gaussian-rasterization, tiny-cuda-nn) are built from
+# source against the installed torch and are NOT part of the lockfile. On a GPU box:
+#   uv sync
+#   uv pip install --no-build-isolation ./submodules/slang-gaussian-rasterization
+#   TCNN_HALF_PRECISION=0 uv pip install --no-build-isolation ./submodules/tiny-cuda-nn/bindings/torch
+
+[dependency-groups]
+dev = ["pytest", "pyflakes"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cu128", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

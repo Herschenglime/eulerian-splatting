@@ -11,8 +11,11 @@ _wandb
 submodules/diff-gaussian-rasterization
 *.egg-info
 *.lock
+!uv.lock
 .slangtorch_cache
 .slangtorch_cache/*
 logs
 *delete*
 output
+.venv/
+tests/out/
