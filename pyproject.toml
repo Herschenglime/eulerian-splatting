@@ -18,6 +18,7 @@ dependencies = [
     "torchinfo",
     "wandb",
     "slangtorch; sys_platform != 'darwin'",  # no macOS wheels; the rasterizer is GPU-only anyway
+    "pycolmap-cuda12>=4.2.1",
 ]
 
 # The CUDA submodules (slang-gaussian-rasterization, tiny-cuda-nn) are built from
