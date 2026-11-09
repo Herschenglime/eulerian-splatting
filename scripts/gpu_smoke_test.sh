@@ -4,7 +4,8 @@
 # rasterizer (probabilistic and refinement phases), render/metrics, and the PLY export.
 #
 # Usage:  scripts/gpu_smoke_test.sh /path/to/tandt/truck [cuda_arch]
-#   cuda_arch defaults to the first GPU's compute capability (8.9 = RTX 40xx, 10.0 = B200, 12.0 = RTX PRO 6000)
+#   cuda_arch defaults to the first GPU's compute capability (8.6 = RTX 30xx, 8.9 = RTX 40xx,
+#   10.0 = B200, 12.0 = RTX PRO 6000). Sized to fit a 12 GB card; peak memory is an estimate.
 set -euo pipefail
 
 SCENE=${1:?usage: $0 /path/to/tandt/truck [cuda_arch]}
@@ -19,14 +20,17 @@ $PY - <<'EOF'
 import torch
 assert torch.cuda.is_available(), "torch cannot see a CUDA GPU"
 print("torch", torch.__version__, "cuda", torch.version.cuda, "|", torch.cuda.get_device_name(0),
-      "| capability", torch.cuda.get_device_capability(0))
+      "| capability", torch.cuda.get_device_capability(0),
+      "| %.1f GB" % (torch.cuda.get_device_properties(0).total_memory / 1e9))
 import tinycudann, slang_gaussian_rasterization  # noqa: F401  (built from submodules)
 print("submodules import OK")
 EOF
 
 echo "== train (600 sampling + 100 refinement iterations, 30 views, snapshots in both phases)"
+# Sized for a 12 GB card (RTX 3060): small hash tables, half-resolution images, 2M samples.
 $PY train.py --config=truck --source_path="$SCENE" --model_path="$MODEL" \
     --torch_cuda_arch_list="$ARCH" --dry_run --disable_visualize \
+    --attrib_config=configs/attribute_grids_small.yaml --resolution=2 \
     --iterations=600 --refinement_iterations=100 \
     --num_samples=2000000 --num_samples_min=500000 \
     --save_iterations 600 700 --test_iterations 600 \

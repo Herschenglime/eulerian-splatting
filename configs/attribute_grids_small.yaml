@@ -1,0 +1,34 @@
+# Same as attribute_grids.yaml but with 2^19-entry hash tables instead of 2^23,
+# for smoke tests and small GPUs (e.g. 12 GB RTX 3060/4070). Estimated from the
+# tcnn level sizes: ~68M grid parameters (~1.1 GB with gradients and Adam state)
+# versus ~900M (~14 GB) for the default. Lower quality; not for paper-scale runs.
+jit_fusion: false
+center_xyz: true
+sh_weights_k: 0.2
+
+encoding:
+    otype: HashGrid
+    n_levels: 13
+    n_features_per_level: 8
+    log2_hashmap_size: 19
+    base_resolution: 2
+    per_level_scale: 2.0
+    interpolation: Smoothstep
+opacity_network:
+    otype: FullyFusedMLP
+    activation: LeakyReLU
+    output_activation: None
+    n_neurons: 32
+    n_hidden_layers: 1
+color_network:
+    otype: FullyFusedMLP
+    activation: None
+    output_activation: None
+    n_neurons: 32
+    n_hidden_layers: 0
+scaling_rotation_network:
+    otype: FullyFusedMLP
+    activation: LeakyReLU
+    output_activation: None
+    n_neurons: 32
+    n_hidden_layers: 1

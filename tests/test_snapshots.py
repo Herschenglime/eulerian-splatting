@@ -152,6 +152,13 @@ def test_cli_flags_reach_training(monkeypatch):
     assert captured["args"][2].iterations == 60_000  # scene YAML still applied
 
     captured.clear()
+    run.train_model(cli_args=["--config=truck", "--source_path=/data/truck",
+                              "--attrib_config=configs/attribute_grids_small.yaml"])
+    # the smoke test's small-GPU grid config is picked up; only the table size differs
+    assert captured["args"][1].attribute_params.encoding["log2_hashmap_size"] == 19
+
+    captured.clear()
     run.train_model(cli_args=["--config=truck", "--source_path=/data/truck"])
+    assert captured["args"][1].attribute_params.encoding["log2_hashmap_size"] == 23
     assert captured["kwargs"]["snapshot_args"]["iterations"] == []  # off by default
     assert captured["args"][0].train_subset == -1

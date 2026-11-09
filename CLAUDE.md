@@ -17,13 +17,17 @@ Agreed scope, in priority order:
 - Stretch: a person holding still; the whole classroom.
 - Cut: underwater, SLAM poses, low light, auto-exposure comparisons, checkerboard calibration. Poses come from COLMAP; phone captures use locked exposure/ISO/white balance/focus, one lens, stabilization off, shutter around 1/250 s or faster.
 
+`docs/` records what we changed in the codebase and why (`docs/viz-tools-changes.md` covers the environment update and visualization tools).
+
 Course materials are outside this repo, in `/Users/paul/School/EEL5406 Comp Phot/Final Project/`:
 - `2605.29136v1(1).pdf`: the paper with its appendix. Read it with the PDF tooling.
 - `Topic_ Final Projects.pdf`: the assignment post. `Initial Braindump(1).pdf`: the group's planning notes.
 
 ## Environment
 
-- **Requires CUDA.** Device `"cuda"` is hard-coded throughout. The attribute grids use tiny-cuda-nn, the rasterizer is written in Slang, and sampling uses a CUDA kernel that is JIT-compiled at runtime. Nothing here runs on this Mac, so edit the code here and train on a Linux machine with an NVIDIA GPU. The paper's numbers come from an H200 (~3.5 h for 35K iterations, ~7.25 h for 65K).
+- **Requires CUDA.** Device `"cuda"` is hard-coded throughout. The attribute grids use tiny-cuda-nn, the rasterizer is written in Slang, and sampling uses a CUDA kernel that is JIT-compiled at runtime. Training runs on Linux machines with NVIDIA GPUs: a lab RTX 3060 for smoke tests, a personal RTX 4070 Super, and HiPerGator for full runs. The Mac is only for editing and the CPU tests; don't build throwaway environments there to test GPU-side questions. The paper's numbers come from an H200 (~3.5 h for 35K iterations, ~7.25 h for 65K).
+- **Run everything through uv:** `uv run python train.py ...`. The plain `python` in the examples below assumes the project venv is active.
+- **12 GB cards can't run the default config.** Estimated from the tcnn level sizes (not measured), the default attribute grids (`log2_hashmap_size: 23`) need ~14 GB once gradients and Adam state are counted. `configs/attribute_grids_small.yaml` (2^19 tables, ~1.1 GB) is what the smoke test uses; pass it with `--attrib_config` on small GPUs, along with lower `--num_samples`/`--num_samples_min` and `--resolution`.
 - **The submodules are not checked out in this clone.** `submodules/*` are empty, so run `git submodule update --init --recursive` before installing. `slang-gaussian-rasterization` points to the authors' fork (polanskers), not the upstream rasterizer, because the custom gradient is implemented there.
 - **Our environment is a uv project** (`pyproject.toml`, `uv.lock`), moved forward from the README's pins so it runs on Blackwell GPUs: Python 3.10, `torch==2.7.1` / `torchvision==0.22.1` from the cu128 index on Linux (CPU wheels on macOS, for tests only). `uv sync` installs everything except the CUDA submodules, which are built against the installed torch:
   ```bash
@@ -31,8 +35,8 @@ Course materials are outside this repo, in `/Users/paul/School/EEL5406 Comp Phot
   uv pip install --no-build-isolation ./submodules/slang-gaussian-rasterization
   TCNN_HALF_PRECISION=0 uv pip install --no-build-isolation ./submodules/tiny-cuda-nn/bindings/torch
   ```
-  `slangtorch` has no macOS wheels, so it is only installed on Linux/Windows. The README's original Python 3.9 / PyTorch 2.4.1+cu121 setup is what the paper used; Blackwell (B200 = 10.0, RTX PRO 6000 = 12.0) needs CUDA 12.8 and PyTorch ≥ 2.7. HiPerGator's current GPUs are L4, RTX PRO 6000 and B200 (the A100s were retired).
-- `--torch_cuda_arch_list` sets `TORCH_CUDA_ARCH_LIST` before the sampling kernel compiles. The default is `"8.0;8.9"`; use `"8.9"` for an RTX 40xx, `"10.0"` for B200, `"12.0"` for RTX PRO 6000. If the compile fails, `sample_cuda` logs a warning and silently falls back to the much slower PyTorch `sample` path, so check the log.
+  `slangtorch` has no macOS wheels, so it is only installed on Linux/Windows. `pycolmap-cuda12` (added in `41e49cc`) only has Linux x86_64 wheels; it co-resolves with torch (the lock picks `cuda-toolkit 12.8.0`, matching torch's CUDA 12.8 runtime). As committed it has no platform marker, so `uv sync` on the Mac will likely fail until it gets `; sys_platform == 'linux'`. The README's original Python 3.9 / PyTorch 2.4.1+cu121 setup is what the paper used; Blackwell (B200 = 10.0, RTX PRO 6000 = 12.0) needs CUDA 12.8 and PyTorch ≥ 2.7. HiPerGator's current GPUs are L4, RTX PRO 6000 and B200 (the A100s were retired).
+- `--torch_cuda_arch_list` sets `TORCH_CUDA_ARCH_LIST` before the sampling kernel compiles. The default is `"8.0;8.9"`; use `"8.6"` for an RTX 30xx, `"8.9"` for an RTX 40xx, `"10.0"` for B200, `"12.0"` for RTX PRO 6000. If the compile fails, `sample_cuda` logs a warning and silently falls back to the much slower PyTorch `sample` path, so check the log.
 
 ## Commands
 
@@ -44,7 +48,9 @@ uv run pytest tests/test_snapshots.py -k timelapse   # one test
 uv run pyflakes utils scripts tests
 ```
 
-They cover our additions (PLY export, `--train_subset` through the real COLMAP loader, snapshot logic and CLI wiring), not the CUDA paths. On a new GPU machine, run `scripts/gpu_smoke_test.sh /path/to/tandt/truck` first (~15 min). It trains a tiny truck run with every new feature switched on, then renders, scores, exports and builds a timelapse, and checks that all expected files exist. `tests/out/test_shapes.ply` (written by the tests) is a converted PLY of RGB axes and a yellow cube for checking the export by eye in https://superspl.at/editor.
+They cover our additions (PLY export, `--train_subset` through the real COLMAP loader, snapshot logic and CLI wiring), not the CUDA paths.
+
+**On a new GPU machine, in this order:** `git submodule update --init --recursive`, `uv sync`, build the two submodules (see Environment), then `scripts/gpu_smoke_test.sh /path/to/tandt/truck` before anything long. The smoke test is sized for a 12 GB card (small hash tables, half resolution, 2M samples, 700 iterations) and auto-detects the GPU's architecture. It trains a tiny truck run with every new feature switched on, then renders, scores, exports and builds a timelapse, and checks that all expected files exist. `tests/out/test_shapes.ply` (written by the tests) is a converted PLY of RGB axes and a yellow cube for checking the export by eye in https://superspl.at/editor.
 
 The entry points are:
 
@@ -92,7 +98,7 @@ python scripts/export_ply.py <run>/point_cloud/iteration_N.ply out.ply [--min_op
 ## Scene data and our own captures
 
 - `Scene` treats the source as a COLMAP scene if `<source_path>/sparse` exists, and as a Blender/NeRF-synthetic scene if `transforms_train.json` exists.
-- For COLMAP scenes, the loader reads `sparse/0/{cameras,images,points3D}.bin` (or `.txt`) and the images in `<source_path>/images` (change the folder with `--images`). **Only PINHOLE and SIMPLE_PINHOLE cameras are accepted**, so images must be undistorted. The repo has no `convert.py`. Run COLMAP's feature_extractor, a matcher, mapper, and image_undistorter, then move the undistorter's `sparse/*.bin` into `sparse/0/` (the same steps as 3DGS's `convert.py`).
+- For COLMAP scenes, the loader reads `sparse/0/{cameras,images,points3D}.bin` (or `.txt`) and the images in `<source_path>/images` (change the folder with `--images`). **Only PINHOLE and SIMPLE_PINHOLE cameras are accepted**, so images must be undistorted. See "COLMAP preprocessing" below.
 - **Camera poses are still required.** What the method removes is the SfM *point cloud* initialization: `init_type` defaults to `"random"`. Setting `init_type=sfm` only sets `xyz`, which the first `sample()` overwrites. The COLMAP-initialized pyramid from paper App. A4.5 is not implemented.
 - With `init_type=random`, the reader writes an unused PLY to `<source_path>/point_cloud/`, so the dataset folder must be writable. (Upstream crashed if that folder was missing; we now create it.)
 - `eval=True` holds out every 8th image, sorted by filename, as the test set.
@@ -100,6 +106,21 @@ python scripts/export_ply.py <run>/point_cloud/iteration_N.ply out.ply [--min_op
 - For RGBA images, alpha is used as a mask, and masked-out ground-truth pixels are filled with the random training background.
 - `--load_ncameras N` truncates the train and test lists separately and keeps N+1 of each (off by one). For few-view experiments use `--train_subset` instead.
 - Normalization: training camera centers are PCA-aligned and scaled into [-1,1]^3 (`transform_poses_pca`, applied in `Camera.__init__`). The L∞ contraction then gives that cube 3/4 of the pyramid's 4096 bins per axis and squeezes everything outside it into the outer shell. A consequence of this design (not yet tested): in inside-out captures, such as a camera walking through a room, most of the content falls outside the camera hull and gets coarse resolution.
+
+## COLMAP preprocessing (in progress, branch `colmap_setup`)
+
+Goal: a `scripts/run_colmap.py <capture_dir> <out_dir>` that turns a folder of photos (or frames extracted from a phone video) into a dataset `Scene` can load: `<out_dir>/images/` (undistorted) plus `<out_dir>/sparse/0/{cameras,images,points3D}.bin` with PINHOLE cameras. Done means a capture trains through `train.py` with its own `configs/scenes/<name>.yaml` (which needs `num_samples_min`).
+
+What's established (from colmap.github.io and PyPI, Nov 2026):
+- COLMAP is used through **pycolmap**, already a project dependency (`pycolmap-cuda12` 4.2.1, Python ≥ 3.10, Linux x86_64 only). pip installs Python bindings only, not a `colmap` command, so the pipeline is a Python script.
+- The bindings cover every step: `extract_features()`, `match_exhaustive()` / `match_sequential()` (sequential suits video frames), `incremental_mapping()` / `global_mapping()` (the former GLOMAP, now built into COLMAP; the standalone GLOMAP project is deprecated), and `undistort_images()`. The docs list function names but not signatures; check them with `help(pycolmap.<fn>)` on the GPU machine.
+- COLMAP's undistorter writes its reconstruction to `<out>/sparse/` directly; 3DGS's `convert.py` then moves the files into `sparse/0/`, which is where our loader reads. Confirm the pycolmap output layout on first run.
+- Use one shared camera for all images (single-camera mode). COLMAP estimates intrinsics itself; no checkerboard calibration.
+- The docs state only "CUDA 12" and no driver requirement. Whether the wheel's GPU code runs on Blackwell (B200, RTX PRO 6000) is unverified: check that GPU feature extraction actually works on the first HiPerGator run. **Keep extraction and matching on the GPU**; don't plan a CPU fallback, since HPC time is limited.
+
+For the views ladder, run COLMAP once on **all** images of a capture and subsample afterwards with `--train_subset`, so pose quality doesn't change between runs.
+
+Capture-side helpers that fit the scope: extracting frames from video at a fixed rate, and keeping the sharpest frame per window (variance of the Laplacian) instead of every Nth frame.
 
 ## Architecture: paper to code
 
