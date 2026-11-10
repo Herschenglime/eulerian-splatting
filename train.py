@@ -237,7 +237,9 @@ def to_namespace(obj):
         
 def prepare_output_and_logger(args, gargs):
     if WANDB_FOUND:
-        if wandb.run.offline:
+        # --dry_run inits wandb with mode="disabled"; recent wandb returns a no-op run whose
+        # `offline` is False, so check `disabled` too.
+        if wandb.run.offline or getattr(wandb.run, "disabled", False):
             wandb_writer = False
             logging.info("Wandb not available: not logging progress")
         else:

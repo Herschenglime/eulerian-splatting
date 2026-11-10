@@ -18,7 +18,14 @@ dependencies = [
     "torchinfo",
     "wandb",
     "slangtorch; sys_platform != 'darwin'",  # no macOS wheels; the rasterizer is GPU-only anyway
-    "pycolmap-cuda12>=4.2.1",
+    # COLMAP preprocessing (scripts/run_colmap.py). pycolmap-cuda12 only has Linux x86_64 wheels.
+    "pycolmap-cuda12>=4.2.1; sys_platform == 'linux'",
+    "pillow-heif",              # iPhone HEIC photos -> JPEG (COLMAP can't read HEIC)
+    "opencv-python-headless",   # video frame extraction + sharpness scoring
+    # torch's cpp_extension (slangtorch, the sampling kernel, tiny-cuda-nn) builds with ninja.
+    # nvcc itself has no complete pip wheel; scripts/setup_cuda_home.sh puts one in .venv/cuda.
+    "ninja",
+    "setuptools<81",   # tiny-cuda-nn's setup.py imports pkg_resources, removed in setuptools 81
 ]
 
 # The CUDA submodules (slang-gaussian-rasterization, tiny-cuda-nn) are built from

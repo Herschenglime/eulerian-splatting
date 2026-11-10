@@ -1,0 +1,11 @@
+# NemeSys figure, 64 iPhone 15 photos (data/NemeSys), posed with scripts/run_colmap.py
+# (60 registered). Object-centric, so the 60K+5K schedule of the non-outdoor scenes.
+# num_samples_min has no 3DGS-MCMC count to copy; 1M is a guess for one small object.
+random_background: true
+white_background: false
+resolution: 1
+images: images_2
+num_samples_min: 1_000_000
+iterations: 60_000
+refinement_iterations: 5000
+save_iterations: [60_000, 65_000]
