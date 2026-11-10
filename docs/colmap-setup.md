@@ -88,6 +88,10 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True uv run python train.py \
   --save_iterations 600 700 --test_iterations 600 --snapshot_iterations 1 300 600 --snapshot_views 0
 ```
 
+**Viewing the result in SuperSplat** needs `scripts/export_ply.py --max_radius 10` (new). About 1% of this run's Gaussians are background samples from the contracted outer shell. Un-contracted, they land up to 1.4e7 units away (bounding box ±8.4M), while the ROV sits within radius ~2. SuperSplat sets its zoom range from the whole bounding box: `minZoom: 1e-6` in `src/scene-config.ts`, scaled by `sceneRadius = bound.halfExtents.length()` in `src/camera.ts`. Its closest approach was therefore ~21 units, and the view opened ~2e7 units away. With `--max_radius 10`, 895K of the 1M Gaussians are kept; with 3, 702K.
+
+The README's Installation section now describes this setup (`uv sync`, plus NVIDIA's apt repository for `cuda-toolkit-12-8`) instead of upstream's conda instructions.
+
 This machine is for checking that captures and the pipeline work, not for results: a full 65K-iteration schedule at these reduced settings would take about 4 h and still not be paper quality.
 
 ## 5. The HiPerGator work on `main`

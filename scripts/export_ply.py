@@ -2,7 +2,7 @@
 
 Usage:
     python scripts/export_ply.py output/<scene>/<run>/point_cloud/iteration_35000.ply out.ply \
-        [--min_opacity 0.005] [--max_points 3000000] [--sh_degree 0]
+        [--min_opacity 0.005] [--max_points 3000000] [--sh_degree 0] [--max_radius 10]
 """
 
 import argparse
@@ -20,6 +20,10 @@ def main(argv=None):
     parser.add_argument("output")
     parser.add_argument("--min_opacity", type=float, default=0.0,
                         help="drop Gaussians less opaque than this (0.005 is a good start)")
+    parser.add_argument("--max_radius", type=float, default=None,
+                        help="drop Gaussians farther than this from the origin (cameras fit in [-1,1]^3); "
+                             "the far background shell otherwise reaches millions of units and SuperSplat "
+                             "can't zoom in on the scene. 10 is a good start")
     parser.add_argument("--max_points", type=int, default=None,
                         help="keep only the N most opaque Gaussians")
     parser.add_argument("--sh_degree", type=int, default=None, choices=[0, 1, 2, 3],
@@ -31,7 +35,7 @@ def main(argv=None):
     try:
         n_in, n_out = convert_file(args.input, args.output, min_opacity=args.min_opacity,
                                    max_points=args.max_points, sh_degree=args.sh_degree,
-                                   force=args.force)
+                                   max_radius=args.max_radius, force=args.force)
     except ValueError as e:
         sys.exit(f"error: {e}")
     size_mb = os.path.getsize(args.output) / 1e6

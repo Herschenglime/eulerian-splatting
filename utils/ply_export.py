@@ -50,12 +50,16 @@ def _truncate_sh(arr, sh_degree):
     return names, rename
 
 
-def convert_vertices(arr, min_opacity=0.0, max_points=None, sh_degree=None, force=False):
+def convert_vertices(arr, min_opacity=0.0, max_points=None, sh_degree=None, max_radius=None, force=False):
     """Return a new structured array in standard 3DGS convention.
 
     min_opacity: drop Gaussians whose (activated) opacity is below this.
     max_points:  keep only the N most opaque Gaussians (original order kept).
     sh_degree:   drop higher-order SH coefficients (0 keeps only f_dc).
+    max_radius:  drop Gaussians farther than this from the origin. Positions are in the
+                 normalized scene frame (training cameras inside [-1,1]^3), and the
+                 uncontracted outer shell reaches millions of units, which makes viewers
+                 that frame the whole bounding box (SuperSplat) show the scene as a dot.
     force:       skip the "already converted?" sanity check.
     """
     if not force:
@@ -64,6 +68,8 @@ def convert_vertices(arr, min_opacity=0.0, max_points=None, sh_degree=None, forc
     keep = np.ones(len(arr), dtype=bool)
     if min_opacity > 0:
         keep &= arr["opacity"] >= min_opacity
+    if max_radius is not None:
+        keep &= arr["x"].astype(np.float64) ** 2 + arr["y"] ** 2 + arr["z"] ** 2 <= max_radius ** 2
     idx = np.nonzero(keep)[0]
     if max_points is not None and len(idx) > max_points:
         top = np.argsort(-arr["opacity"][idx], kind="stable")[:max_points]

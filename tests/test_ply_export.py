@@ -74,6 +74,13 @@ def test_min_opacity_and_max_points():
     assert pos == sorted(pos)
 
 
+def test_max_radius_drops_far_gaussians():
+    arr = _random_gaussians(n=6)
+    arr["x"], arr["y"], arr["z"] = [0, 1.5, 0, 3, 1e6, -2], [0, 0, 1.9, 0, 0, 0], [0, 0, 0, 0, 0, 0]
+    out = convert_vertices(arr, max_radius=2.0)
+    np.testing.assert_allclose(out["x"], [0, 1.5, 0, -2])
+
+
 @pytest.mark.parametrize("degree", [0, 1, 2, 3])
 def test_sh_truncation_keeps_lowest_bands_per_channel(degree):
     arr = _random_gaussians()
