@@ -1,6 +1,6 @@
 # Changes: environment update and visualization tools
 
-This covers the first set of changes to our fork, committed as `aaface5` ("init claude run of utility creation"). It doesn't cover later commits, such as the COLMAP dependency added in `41e49cc`.
+This covers the first set of changes to our fork, committed as `aaface5` ("init claude run of utility creation"). It doesn't cover later commits, such as the COLMAP dependency added in `41e49cc`. The macOS support described in section 1 was later dropped, and the CUDA submodules are now built by `uv sync`: see `docs/colmap-setup.md`.
 
 ## Why
 

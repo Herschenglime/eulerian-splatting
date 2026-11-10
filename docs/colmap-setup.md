@@ -1,6 +1,6 @@
 # Changes: COLMAP preprocessing and a local GPU setup
 
-This covers the `colmap_setup` branch after `3418e3c` (the handoff): the COLMAP pipeline, what it took to run the GPU code on a lab machine without a system CUDA toolkit, and a review of the HiPerGator work on `main`.
+This covers the `colmap_setup` branch after `3418e3c` (the handoff): the COLMAP pipeline, making a plain `uv sync` build the whole environment (CUDA submodules included), and a review of the HiPerGator work on `main`.
 
 ## Why
 
@@ -27,23 +27,33 @@ uv run python scripts/run_colmap.py "data/nemesys vid.mp4" data/nemesys_vid --fp
 - **`<out>/colmap_summary.json`:** registered/total images, the names of unregistered images, number of points, mean reprojection error, track length, both cameras, and frame sharpness for videos.
 - **`configs/scenes/nemesys.yaml`** is the scene config for the NemeSys photos. `num_samples_min: 1M` is a guess, since our scenes have no 3DGS-MCMC count to copy.
 
-## 2. A CUDA toolkit inside the venv
+## 2. `uv sync` builds the whole environment
 
-**Files:** `scripts/setup_cuda_home.sh`, `utils/cuda_env.py`, `gaussian_renderer/__init__.py`, `models/sampling_modules/__init__.py`
+**Files:** `pyproject.toml`, `uv.lock`
 
-- **The problem:** tiny-cuda-nn is built from source, and the Slang rasterizer and the sampling kernel are JIT-compiled by torch's `cpp_extension`. All three need an `nvcc` that matches torch's CUDA (12.8). The lab machine has none, `sudo` needs a password, and Ubuntu 24.04's `nvidia-cuda-toolkit` package is 12.0.
-- **Why not a pip/uv dependency:** NVIDIA's `nvidia-cuda-nvcc-cu12` wheel only contains `ptxas` and `nvvm` (it exists for JAX and Triton). It has no `nvcc` driver, `cudafe++` or `fatbinary`, so it can't compile anything.
-- **`scripts/setup_cuda_home.sh`** downloads NVIDIA's official per-component redist archives for CUDA 12.8.1 (compiler, cudart, CCCL, NVTX, profiler API; about 80 MB) into `.venv/cuda/`. It symlinks the cuBLAS, cuSPARSE, cuSOLVER, cuRAND, cuFFT and NVRTC headers and libraries from the `nvidia-*` wheels torch already installed, so their versions match torch exactly. Run it once after `uv sync`; it takes about a minute and uses 331 MB.
-- **`utils/cuda_env.py`** sets `CUDA_HOME` to `.venv/cuda` when `CUDA_HOME` isn't already set and the toolkit exists. It's imported by the two modules that trigger compilation, so `uv run python train.py ...` and notebooks need no extra setup. A `CUDA_HOME` you set yourself (a system install, or `module load cuda/12.8.1` on HiPerGator) always wins, so it does nothing on the HPC.
-- **A system-wide install still works:** NVIDIA's apt repository and `cuda-toolkit-12-8` (3–4 GB), then `export CUDA_HOME=/usr/local/cuda-12.8`.
+- **The problem:**
+  - The two CUDA submodules were installed by hand with `uv pip install --no-build-isolation`, outside the lockfile.
+  - A plain `uv sync` makes the venv match the lock exactly, so every sync **uninstalled** them. After that, the rasterizer failed with `No module named 'slang_gaussian_rasterization'`.
+  - The HiPerGator environment lives in a venv on `/blue` that git knows nothing about.
+- **What changed:** `pyproject.toml` is now the single description of the environment.
+  - `slang-gaussian-rasterization` and `tinycudann` are path dependencies on the submodules. Both are in `uv.lock`, so `uv sync` builds and keeps them. The rasterizer is pure Python; its Slang kernels compile at runtime.
+  - **tiny-cuda-nn build settings:**
+    - It builds against the same torch it runs with (`extra-build-dependencies`, `match-runtime`).
+    - `setuptools<81` in its build environment, because its `setup.py` imports `pkg_resources`, which setuptools 81 removed. Upstream's README pins `setuptools==73.0.1`.
+    - Half precision is off (`TCNN_HALF_PRECISION=0`, as before).
+    - Static `dependency-metadata`, so resolving the lock doesn't run its `setup.py`.
+  - **`TCNN_CUDA_ARCHITECTURES=86;89;100;120`** builds one module per GPU family: RTX 30xx, RTX 40xx/L4, B200 and RTX PRO 6000. uv caches the built wheel and doesn't key the cache on the GPU. Without a fixed list, a wheel built on one HiPerGator node type would be reused on the others, which share `~/.cache/uv`. A new GPU type means adding its arch. After changing the submodule, run `uv sync --reinstall-package tinycudann`.
+  - **Linux x86_64 only** (`[tool.uv] environments`). The macOS markers and CPU-wheel fallbacks are gone; nothing runs on the Mac.
+- **The one thing uv can't provide: a CUDA 12.8 toolkit with `nvcc` on `PATH`.** It's needed during `uv sync` and at runtime. Use `module load cuda/12.8.1` on HiPerGator, or NVIDIA's `cuda-toolkit-12-8` apt package plus `export PATH=/usr/local/cuda-12.8/bin:$PATH`. Ubuntu's own `nvidia-cuda-toolkit` is 12.0, too old. Why it can't come from pip:
+  - The `nvidia-cuda-nvcc-cu12` wheel, in every 12.x version, only ships `ptxas` and `nvvm`, for JAX and Triton. It has no `nvcc` driver, `cudafe++` or `fatbinary`.
+  - CUDA 13's `nvidia-cuda-nvcc` wheels do have the full compiler, and torch's cu130 builds pull them in through NVIDIA's `cuda-toolkit` metapackage. But `pycolmap-cuda12` requires `cuda-toolkit<13`, and there's no GPU pycolmap for CUDA 13. Moving to CUDA 13 would also mean torch 2.7 → 2.14, a CUDA 13 build of tiny-cuda-nn and the Slang rasterizer that nobody has tried, and driver ≥ 580 everywhere.
+- **Dropped:** `321e1e1` first worked around the missing `nvcc` with `scripts/setup_cuda_home.sh` and `utils/cuda_env.py`. They downloaded NVIDIA's redist archives into `.venv/cuda` and pointed `CUDA_HOME` at them. Both are removed now that the toolkit comes from the system.
 
 ## 3. Other environment fixes
 
-**Files:** `pyproject.toml`, `uv.lock`, `train.py`, `.gitignore`
+**Files:** `pyproject.toml`, `train.py`, `.gitignore`
 
-- **`pycolmap-cuda12` is now Linux-only** (`; sys_platform == 'linux'`), so `uv sync` works on the Mac again.
-- **New dependencies:** `pillow-heif` (HEIC), `opencv-python-headless` (video frames and sharpness), `ninja` (builds for `cpp_extension`), and `setuptools<81`. tiny-cuda-nn's `setup.py` imports `pkg_resources`, which setuptools 81 removed; upstream's README pins `setuptools==73.0.1`.
-- **Use `uv sync --inexact` once the submodules are built.** A plain `uv sync` makes the venv match the lockfile exactly and **uninstalls** `slang-gaussian-rasterization` and `tinycudann`, because they are built by hand and aren't in the lock. The rasterizer then fails to import with `No module named 'slang_gaussian_rasterization'`. If that happens, re-run the two `uv pip install --no-build-isolation` commands.
+- **New dependencies:** `pillow-heif` (HEIC), `opencv-python-headless` (video frames and sharpness), and `ninja` (torch's `cpp_extension` builds with it).
 - **`--dry_run` crashed with current wandb** (`ValueError: invalid literal for int()` in `prepare_output_and_logger`). Upstream pins `wandb==0.17.5`. In newer versions, `mode="disabled"` returns a no-op run whose `offline` is False, so the code treated it as an online run and parsed a run number from its random name. It now checks `wandb.run.disabled` too.
 - **`data/` is gitignored.** Captures and processed datasets stay out of git.
 
@@ -53,19 +63,18 @@ This card has **8 GB**, not the 12 GB the smoke-test settings assume; about 1.2 
 
 ```bash
 git submodule update --init --recursive
+nvcc --version    # must say 12.8
 uv sync
-scripts/setup_cuda_home.sh
-export CUDA_HOME=$PWD/.venv/cuda TORCH_CUDA_ARCH_LIST=8.6 TCNN_CUDA_ARCHITECTURES=86
-uv pip install --no-build-isolation ./submodules/slang-gaussian-rasterization
-TCNN_HALF_PRECISION=0 uv pip install --no-build-isolation ./submodules/tiny-cuda-nn/bindings/torch
 ```
+
+The final setup was checked from an empty `.venv` with a plain `uv sync` and `nvcc` 12.8 on `PATH` (no `CUDA_HOME`). It took 1.5 min, including tiny-cuda-nn for all four archs. A second `uv sync` left both submodules installed, and the tests and a short training run passed afterwards. This machine has no system toolkit yet, so for the check `PATH` pointed at a standalone copy of NVIDIA's 12.8.1 compiler, cudart and CCCL, with the math-library headers from the matching wheels.
 
 | Step | Result |
 |---|---|
 | pycolmap GPU | `has_cuda` True; SIFT extraction runs on the GPU ("Creating SIFT GPU feature extractor") |
 | COLMAP, NemeSys photos (64 HEIC, 48 MP) | 60/64 registered, 20K points, 1.28 px mean reprojection error, 53 s (plus ~1 min of HEIC conversion). Focal length 2458 px at 2377×3173, which matches the 26 mm-equivalent lens. Unregistered: IMG_6226, 6227, 6231, 6232. |
 | COLMAP, NemeSys video (48 s, 1080p60 HEVC, `--fps 2`) | 96 frames kept. Sequential: 59/96 in 4 pieces. Exhaustive: 96/96, 14.7K points, 1.13 px, 2 min. |
-| Builds | tiny-cuda-nn ~25 s (one arch, 24 cores); Slang kernels 68 s on first import; sampling kernel 22 s, no fallback to the PyTorch path. All are cached afterwards. |
+| Builds | tiny-cuda-nn ~1.5 min for 4 archs (24 cores); Slang kernels 68 s on first import; sampling kernel 22 s, no fallback to the PyTorch path. All are cached afterwards. |
 | CPU tests | 22 passed |
 | Training on NemeSys photos | 600 + 100 iterations, about 2.5 min at ~4.7 it/s, peak 7.0 GB GPU memory in use (including the desktop). Test PSNR 15.3 at iteration 700. The test grid shows the ROV, table and tank from the correct held-out viewpoints, so the poses are right; the timelapse shows samples condensing. |
 
@@ -91,11 +100,16 @@ What changed:
 - **`utils/notebook_progress.py`:** a live Jupyter dashboard (ETA, per-stage timings, GPU memory, host RAM against the SLURM cgroup limit, preview images). It needs `IPython` and optionally `psutil`, neither of which is in our `pyproject.toml`.
 - **`run.py`:** the default `--torch_cuda_arch_list` gains `10.0`.
 - **`tqdm` → `tqdm.auto`** in 5 files, for notebook progress bars.
-- **Committed data that shouldn't be in git:** `data/bicycle/sparse/0/*.bin` (images.bin is 50 MB), `poses_bounds.npy`, a random-init PLY, and `data/wget-log`, a leftover from a failed `wget` of a claude.ai login URL. No secrets, but it's junk.
+- **Committed data that shouldn't be in git:**
+  - `data/bicycle/sparse/0/*.bin` (images.bin is 50 MB), `poses_bounds.npy` and a random-init PLY. This is a partial add of the dataset; the images were meant to go through Git LFS, which was never set up.
+  - `data/wget-log`, a leftover from a failed `wget` of a claude.ai login URL. No secrets, but it's junk.
+  - The PLY is written by the loader when training starts, so a run did load the full scene on HiPerGator.
+  - Nothing from that run is in git (`output/` is ignored), so there are no B200 results to look at from here.
+  - Bicycle is the public mip-NeRF 360 scene, so redoing the run needs only the public download (`360_v2`), not his copy.
 
 **Should this branch merge it now? Yes, the code, soon.** The trial merge (`git merge-tree`) conflicts in only two places: `training()` and `train_model()` each gained a keyword argument on both sides (`snapshot_args` here, `progress_callback` there). Keeping both is a two-line fix, and the training-loop changes auto-merge. Both branches keep editing the training loop, so the conflicts only get worse with time. When merging:
 - `git rm --cached -r data/bicycle data/wget-log` (and preferably on `main` too), since `data/` is now ignored.
-- Add `ipython` and `psutil` to `pyproject.toml` if the dashboard is meant to work from the uv environment.
+- Add `ipython`, `ipykernel` and `psutil` to `pyproject.toml`, so the dashboard and the Jupyter kernel run from the uv environment instead of the separate `/blue` env.
 - Re-run `uv run pytest` and a short training run, since snapshots and the progress callback both hook the end of the iteration.
 
 **Ask the teammate for a `pip freeze` of the HiPerGator env**, especially the torch, slangtorch, wandb and setuptools versions and how tiny-cuda-nn was built. "The deps are sorted" currently means that one env on `/blue`. Our `pyproject.toml` has never been tested on a B200, and the `--dry_run` crash above shows that unpinned wandb breaks the upstream code. That env probably still has the README's wandb 0.17.5.
@@ -103,6 +117,6 @@ What changed:
 ## Not yet verified
 
 - pycolmap's GPU SIFT on Blackwell (B200, RTX PRO 6000).
-- `scripts/setup_cuda_home.sh` on any machine except this one.
+- `uv sync` on HiPerGator with `module load cuda/12.8.1`, in particular tiny-cuda-nn's sm_100/sm_120 modules on real Blackwell hardware.
 - `--mapper global`, and the sequential matcher on a capture longer than 300 frames.
 - `scripts/gpu_smoke_test.sh`, which needs Tanks & Temples truck (not on this machine) and is sized for 12 GB. On an 8 GB card it would need the `--num_samples` settings above.

@@ -13,7 +13,6 @@ import math
 from models.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
 
-import utils.cuda_env  # noqa: F401  (nvcc for the Slang kernels, compiled on import below)
 from slang_gaussian_rasterization.api.inria_3dgs import common_properties_from_inria_GaussianModel, common_properties_from_inria_Camera
 from slang_gaussian_rasterization.internal.alphablend_tiled_slang import render_alpha_blend_tiles_slang_raw
 

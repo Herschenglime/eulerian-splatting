@@ -3,9 +3,12 @@ name = "eulerian-splatting"
 version = "0.1.0"
 description = "Eulerian Gaussian Splatting (CVPR 2026), EEL5406 group fork updated for Blackwell GPUs"
 requires-python = "==3.10.*"
+# Linux x86_64 with an NVIDIA GPU only. `uv sync` builds tiny-cuda-nn from the submodule, which
+# needs a CUDA 12.8 toolkit with nvcc on PATH: `module load cuda/12.8.1` on HiPerGator, or NVIDIA's
+# cuda-toolkit-12-8 package plus PATH=/usr/local/cuda-12.8/bin:$PATH. pip has no CUDA 12 nvcc, and
+# the CUDA 13 wheels that do have one would rule out GPU pycolmap (pycolmap-cuda12 needs CUDA 12).
 dependencies = [
     # Blackwell (sm_100 / sm_120) needs CUDA 12.8 builds of PyTorch >= 2.7.
-    # On Linux these resolve to the cu128 wheels; on macOS to CPU wheels (tests only).
     "torch==2.7.1",
     "torchvision==0.22.1",
     "numpy<2.3",
@@ -17,37 +20,53 @@ dependencies = [
     "matplotlib",
     "torchinfo",
     "wandb",
-    "slangtorch; sys_platform != 'darwin'",  # no macOS wheels; the rasterizer is GPU-only anyway
-    # COLMAP preprocessing (scripts/run_colmap.py). pycolmap-cuda12 only has Linux x86_64 wheels.
-    "pycolmap-cuda12>=4.2.1; sys_platform == 'linux'",
+    "slangtorch",
+    # CUDA submodules, built from submodules/ (git submodule update --init --recursive first)
+    "slang-gaussian-rasterization",
+    "tinycudann",
+    # torch's cpp_extension JIT-compiles the Slang rasterizer and the sampling kernel with ninja
+    "ninja",
+    # COLMAP preprocessing (scripts/run_colmap.py)
+    "pycolmap-cuda12>=4.2.1",
     "pillow-heif",              # iPhone HEIC photos -> JPEG (COLMAP can't read HEIC)
     "opencv-python-headless",   # video frame extraction + sharpness scoring
-    # torch's cpp_extension (slangtorch, the sampling kernel, tiny-cuda-nn) builds with ninja.
-    # nvcc itself has no complete pip wheel; scripts/setup_cuda_home.sh puts one in .venv/cuda.
-    "ninja",
-    "setuptools<81",   # tiny-cuda-nn's setup.py imports pkg_resources, removed in setuptools 81
 ]
-
-# The CUDA submodules (slang-gaussian-rasterization, tiny-cuda-nn) are built from
-# source against the installed torch and are NOT part of the lockfile. On a GPU box:
-#   uv sync
-#   uv pip install --no-build-isolation ./submodules/slang-gaussian-rasterization
-#   TCNN_HALF_PRECISION=0 uv pip install --no-build-isolation ./submodules/tiny-cuda-nn/bindings/torch
 
 [dependency-groups]
 dev = ["pytest", "pyflakes"]
 
 [tool.uv]
 package = false
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
 
 [tool.uv.sources]
-torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'linux'" }]
-torchvision = [{ index = "pytorch-cu128", marker = "sys_platform == 'linux'" }]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+slang-gaussian-rasterization = { path = "submodules/slang-gaussian-rasterization" }
+tinycudann = { path = "submodules/tiny-cuda-nn/bindings/torch" }
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
 explicit = true
+
+# tiny-cuda-nn's setup.py imports torch, so it builds against the same torch we run with
+# (match-runtime). It also imports pkg_resources, which setuptools 81 removed.
+[tool.uv.extra-build-dependencies]
+tinycudann = [{ requirement = "torch", match-runtime = true }, "setuptools<81", "ninja"]
+
+# Without a GPU-independent arch list, the build would target only the GPU it was built on, and
+# uv's cache would hand that wheel to every other machine sharing ~/.cache/uv (HiPerGator's GPU
+# nodes do). 86 = RTX 30xx, 89 = RTX 40xx / L4, 100 = B200, 120 = RTX PRO 6000.
+[tool.uv.extra-build-variables]
+tinycudann = { TCNN_CUDA_ARCHITECTURES = "86;89;100;120", TCNN_HALF_PRECISION = "0" }
+
+# Static metadata, so resolving the lock doesn't have to run tiny-cuda-nn's setup.py (which
+# needs torch and nvcc). Required by match-runtime.
+[[tool.uv.dependency-metadata]]
+name = "tinycudann"
+version = "2.0"
+requires-dist = []
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

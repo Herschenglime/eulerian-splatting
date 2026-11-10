@@ -9,8 +9,6 @@ import math
 from absl import logging
 from functools import partial
 
-import utils.cuda_env  # noqa: F401  (nvcc for the sampling kernel below)
-
 # JIT-compile the CUDA sampling kernel
 _cuda_sampling = None
 def _load_cuda_sampling():

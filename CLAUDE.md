@@ -17,35 +17,31 @@ Agreed scope, in priority order:
 - Stretch: a person holding still; the whole classroom.
 - Cut: underwater, SLAM poses, low light, auto-exposure comparisons, checkerboard calibration. Poses come from COLMAP; phone captures use locked exposure/ISO/white balance/focus, one lens, stabilization off, shutter around 1/250 s or faster.
 
-`docs/` records what we changed in the codebase and why (`docs/viz-tools-changes.md` covers the environment update and visualization tools; `docs/colmap-setup.md` covers COLMAP preprocessing, the venv CUDA toolkit, and a review of the HiPerGator work on `main`).
+`docs/` records what we changed in the codebase and why (`docs/viz-tools-changes.md` covers the environment update and visualization tools; `docs/colmap-setup.md` covers COLMAP preprocessing, making `uv sync` build the whole environment, and a review of the HiPerGator work on `main`).
 
 **Branches:** `main` holds a teammate's HiPerGator/B200 work (a notebook workflow, `progress_callback` in `train.py`, `utils/notebook_progress.py`), not merged into `colmap_setup` yet. Its environment is a venv on `/blue` that isn't recorded in git. `docs/colmap-setup.md` §5 has the review and the merge plan.
 
-Course materials are outside this repo, in `/Users/paul/School/EEL5406 Comp Phot/Final Project/`:
+Course materials are outside this repo, in `/home/pgrau/Sync/School/EEL5406 Comp Phot/Final Project/`:
 - `2605.29136v1(1).pdf`: the paper with its appendix. Read it with the PDF tooling.
 - `Topic_ Final Projects.pdf`: the assignment post. `Initial Braindump(1).pdf`: the group's planning notes.
 
 ## Environment
 
-- **Requires CUDA.** Device `"cuda"` is hard-coded throughout. The attribute grids use tiny-cuda-nn, the rasterizer is written in Slang, and sampling uses a CUDA kernel that is JIT-compiled at runtime. Training runs on Linux machines with NVIDIA GPUs: a lab RTX 3060 Ti (8 GB, no system CUDA toolkit, no sudo) for smoke tests, a personal RTX 4070 Super, and HiPerGator for full runs. The Mac is only for editing and the CPU tests; don't build throwaway environments there to test GPU-side questions. The paper's numbers come from an H200 (~3.5 h for 35K iterations, ~7.25 h for 65K).
+- **Requires CUDA.** Device `"cuda"` is hard-coded throughout. The attribute grids use tiny-cuda-nn, the rasterizer is written in Slang, and sampling uses a CUDA kernel that is JIT-compiled at runtime. Training runs on Linux machines with NVIDIA GPUs: a lab RTX 3060 Ti (8 GB) for smoke tests, a personal RTX 4070 Super, and HiPerGator for full runs. **Linux x86_64 only**: the uv project doesn't resolve anywhere else. The paper's numbers come from an H200 (~3.5 h for 35K iterations, ~7.25 h for 65K).
 - **Run everything through uv:** `uv run python train.py ...`. The plain `python` in the examples below assumes the project venv is active.
 - **12 GB cards can't run the default config.** Estimated from the tcnn level sizes (not measured), the default attribute grids (`log2_hashmap_size: 23`) need ~14 GB once gradients and Adam state are counted. `configs/attribute_grids_small.yaml` (2^19 tables, ~1.1 GB) is what the smoke test uses; pass it with `--attrib_config` on small GPUs, along with lower `--num_samples`/`--num_samples_min` and `--resolution`.
-- **The submodules are not checked out in this clone.** `submodules/*` are empty, so run `git submodule update --init --recursive` before installing. `slang-gaussian-rasterization` points to the authors' fork (polanskers), not the upstream rasterizer, because the custom gradient is implemented there.
-- **Our environment is a uv project** (`pyproject.toml`, `uv.lock`), moved forward from the README's pins so it runs on Blackwell GPUs: Python 3.10, `torch==2.7.1` / `torchvision==0.22.1` from the cu128 index on Linux (CPU wheels on macOS, for tests only). `uv sync` installs everything except the CUDA submodules, which are built against the installed torch:
-  ```bash
-  uv sync
-  uv pip install --no-build-isolation ./submodules/slang-gaussian-rasterization
-  TCNN_HALF_PRECISION=0 uv pip install --no-build-isolation ./submodules/tiny-cuda-nn/bindings/torch
-  ```
-  `slangtorch` has no macOS wheels, so it is only installed on Linux/Windows. `pycolmap-cuda12` only has Linux x86_64 wheels and is marked Linux-only. The README's original Python 3.9 / PyTorch 2.4.1+cu121 setup is what the paper used; Blackwell (B200 = 10.0, RTX PRO 6000 = 12.0) needs CUDA 12.8 and PyTorch ≥ 2.7. HiPerGator's current GPUs are L4, RTX PRO 6000 and B200 (the A100s were retired).
-- **After the submodules are built, use `uv sync --inexact`.** A plain `uv sync` uninstalls `slang-gaussian-rasterization` and `tinycudann`, because they aren't in the lock.
-- **No system CUDA toolkit?** Run `scripts/setup_cuda_home.sh`. It installs nvcc 12.8 and its headers into `.venv/cuda` (no sudo; the `nvidia-cuda-nvcc-cu12` pip wheel lacks the `nvcc` driver). `utils/cuda_env.py` then sets `CUDA_HOME` to it automatically, unless `CUDA_HOME` is already set (e.g. `module load cuda/12.8.1` on HiPerGator). Export `CUDA_HOME=$PWD/.venv/cuda` for the submodule builds.
+- **Setup is `uv sync`, nothing else.** The uv project (`pyproject.toml`, `uv.lock`) is the source of truth. It has Python 3.10 and `torch==2.7.1`/`torchvision==0.22.1` from the cu128 index, moved forward from the README's pins so it runs on Blackwell GPUs. It also includes both CUDA submodules as path dependencies, which `uv sync` builds and keeps. No `uv pip install` steps and no `--inexact`. Prerequisites:
+  - **The submodules checked out:** `git submodule update --init --recursive`. `slang-gaussian-rasterization` points to the authors' fork (polanskers), because the custom gradient is implemented there.
+  - **A CUDA 12.8 toolkit with `nvcc` on `PATH`,** both for `uv sync` and at runtime. tiny-cuda-nn is compiled during the sync, and the Slang rasterizer and the sampling kernel are JIT-compiled on first use. On HiPerGator, `module load cuda/12.8.1`. On a workstation, install NVIDIA's `cuda-toolkit-12-8` apt package (Ubuntu's own `nvidia-cuda-toolkit` is 12.0, too old) and add `export PATH=/usr/local/cuda-12.8/bin:$PATH` to the shell profile.
+  - **Why not from pip:** pip has no CUDA 12 `nvcc` (the `nvidia-cuda-nvcc-cu12` wheel is only `ptxas`/`nvvm`). CUDA 13 has full nvcc wheels, but there's no GPU pycolmap for CUDA 13.
+  - **tiny-cuda-nn build settings** live in `pyproject.toml` (`[tool.uv.extra-build-*]`): built against the runtime torch, `setuptools<81`, half precision off, and `TCNN_CUDA_ARCHITECTURES=86;89;100;120`. The fixed arch list matters because uv caches the built wheel and reuses it on every machine sharing `~/.cache/uv`. A new GPU type means adding its arch there. To force a rebuild after changing the submodule: `uv sync --reinstall-package tinycudann`.
+  - The README's original Python 3.9 / PyTorch 2.4.1+cu121 setup is what the paper used. Blackwell (B200 = 10.0, RTX PRO 6000 = 12.0) needs CUDA 12.8 and PyTorch ≥ 2.7. HiPerGator's current GPUs are L4, RTX PRO 6000 and B200 (the A100s were retired).
 - **8 GB cards** (the lab 3060 Ti) ran out of memory at 2M samples. Use `--num_samples=1000000 --num_samples_min=300000 --images=images_4 --resolution=1` with the small attribute grids, which peaked at 7.0 GB including the desktop.
 - `--torch_cuda_arch_list` sets `TORCH_CUDA_ARCH_LIST` before the sampling kernel compiles. The default is `"8.0;8.9"`; use `"8.6"` for an RTX 30xx, `"8.9"` for an RTX 40xx, `"10.0"` for B200, `"12.0"` for RTX PRO 6000. If the compile fails, `sample_cuda` logs a warning and silently falls back to the much slower PyTorch `sample` path, so check the log.
 
 ## Commands
 
-**Tests** run on CPU (any machine, including the Mac) with the GPU-only modules stubbed out:
+**Tests** run on the CPU (no GPU needed) with the GPU-only modules stubbed out:
 
 ```bash
 uv run pytest                       # all tests
@@ -55,7 +51,7 @@ uv run pyflakes utils scripts tests
 
 They cover our additions (PLY export, `--train_subset` through the real COLMAP loader, snapshot logic and CLI wiring), not the CUDA paths.
 
-**On a new GPU machine, in this order:** `git submodule update --init --recursive`, `uv sync`, `scripts/setup_cuda_home.sh` if there's no CUDA 12.8 toolkit, build the two submodules (see Environment), then `scripts/gpu_smoke_test.sh /path/to/tandt/truck` before anything long. The smoke test is sized for a 12 GB card (small hash tables, half resolution, 2M samples, 700 iterations) and auto-detects the GPU's architecture. It trains a tiny truck run with every new feature switched on, then renders, scores, exports and builds a timelapse, and checks that all expected files exist. `tests/out/test_shapes.ply` (written by the tests) is a converted PLY of RGB axes and a yellow cube for checking the export by eye in https://superspl.at/editor.
+**On a new GPU machine, in this order:** `git submodule update --init --recursive`, make sure `nvcc --version` reports 12.8, `uv sync` (a few minutes the first time, for tiny-cuda-nn), then `scripts/gpu_smoke_test.sh /path/to/tandt/truck` before anything long. The smoke test is sized for a 12 GB card (small hash tables, half resolution, 2M samples, 700 iterations) and auto-detects the GPU's architecture. It trains a tiny truck run with every new feature switched on, then renders, scores, exports and builds a timelapse, and checks that all expected files exist. `tests/out/test_shapes.ply` (written by the tests) is a converted PLY of RGB axes and a yellow cube for checking the export by eye in https://superspl.at/editor.
 
 The entry points are:
 
