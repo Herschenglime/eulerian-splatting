@@ -90,6 +90,10 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True uv run python train.py \
 
 **Viewing the result in SuperSplat** needs `scripts/export_ply.py --max_radius 10` (new). About 1% of this run's Gaussians are background samples from the contracted outer shell. Un-contracted, they land up to 1.4e7 units away (bounding box ±8.4M), while the ROV sits within radius ~2. SuperSplat sets its zoom range from the whole bounding box: `minZoom: 1e-6` in `src/scene-config.ts`, scaled by `sceneRadius = bound.halfExtents.length()` in `src/camera.ts`. Its closest approach was therefore ~21 units, and the view opened ~2e7 units away. With `--max_radius 10`, 895K of the 1M Gaussians are kept; with 3, 702K.
 
+**Exports are also rotated upright** (`utils/ply_export.py` `UPRIGHT`, on by default, `--no_upright` to skip).
+- **Why:** training uses the frame from `transform_poses_pca`, where camera centers are PCA-aligned and the frame is flipped so the cameras' OpenCV y axis (image-down) points +z. The scene's up is therefore −z for any capture where the cameras circle the subject; on the NemeSys photos, the mean camera up is (0.07, 0, −1.00). SuperSplat treats +y as up, so the scene had to be rotated 90° about x by hand.
+- **What the export does:** it applies that rotation, −z → +y, to positions, quaternions (composed with the rotation) and the SH bands 1–3. Each band's rotation matrix is solved by least squares from `eval_sh`'s own basis, so the view-dependent color is unchanged, not just the geometry. Tests check covariances and color for both the upright rotation and an arbitrary one.
+
 The README's Installation section now describes this setup (`uv sync`, plus NVIDIA's apt repository for `cuda-toolkit-12-8`) instead of upstream's conda instructions.
 
 This machine is for checking that captures and the pipeline work, not for results: a full 65K-iteration schedule at these reduced settings would take about 4 h and still not be paper quality.
@@ -112,7 +116,7 @@ What changed:
   - Bicycle is the public mip-NeRF 360 scene, so redoing the run needs only the public download (`360_v2`), not his copy.
 
 **Should this branch merge it now? Yes, the code, soon.** The trial merge (`git merge-tree`) conflicts in only two places: `training()` and `train_model()` each gained a keyword argument on both sides (`snapshot_args` here, `progress_callback` there). Keeping both is a two-line fix, and the training-loop changes auto-merge. Both branches keep editing the training loop, so the conflicts only get worse with time. When merging:
-- `git rm --cached -r data/bicycle data/wget-log` (and preferably on `main` too), since `data/` is now ignored.
+- `git rm --cached -r data/bicycle data/wget-log`, since `data/` is now ignored. `--cached` only keeps the files in the working tree of whoever runs it. The commit records a deletion, so anyone who pulls it has the files **removed** (checked with a throwaway repo). On HiPerGator, right after pulling, restore them as untracked, ignored files with `git restore --source=HEAD@{1} -- data/bicycle data/wget-log`, or copy `data/bicycle` aside before pulling.
 - Add `ipython`, `ipykernel` and `psutil` to `pyproject.toml`, so the dashboard and the Jupyter kernel run from the uv environment instead of the separate `/blue` env.
 - Re-run `uv run pytest` and a short training run, since snapshots and the progress callback both hook the end of the iteration.
 

@@ -24,6 +24,8 @@ def main(argv=None):
                         help="drop Gaussians farther than this from the origin (cameras fit in [-1,1]^3); "
                              "the far background shell otherwise reaches millions of units and SuperSplat "
                              "can't zoom in on the scene. 10 is a good start")
+    parser.add_argument("--no_upright", action="store_true",
+                        help="keep the training frame (scene up = -z) instead of rotating up to +y for viewers")
     parser.add_argument("--max_points", type=int, default=None,
                         help="keep only the N most opaque Gaussians")
     parser.add_argument("--sh_degree", type=int, default=None, choices=[0, 1, 2, 3],
@@ -35,7 +37,7 @@ def main(argv=None):
     try:
         n_in, n_out = convert_file(args.input, args.output, min_opacity=args.min_opacity,
                                    max_points=args.max_points, sh_degree=args.sh_degree,
-                                   max_radius=args.max_radius, force=args.force)
+                                   max_radius=args.max_radius, upright=not args.no_upright, force=args.force)
     except ValueError as e:
         sys.exit(f"error: {e}")
     size_mb = os.path.getsize(args.output) / 1e6

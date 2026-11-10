@@ -7,7 +7,8 @@ import pytest
 
 from tests.gaussian_fixtures import STANDARD_NAMES, activated_vertices, make_test_shapes
 from tests.conftest import REPO_ROOT
-from utils.ply_export import convert_vertices, read_vertices, write_vertices
+from utils.ply_export import UPRIGHT, convert_vertices, read_vertices, rotate_vertices, write_vertices
+from utils.sh_utils import eval_sh
 
 
 def _random_gaussians(n=200, seed=0):
@@ -28,7 +29,7 @@ def _sigmoid(x):
 
 def test_round_trip_matches_viewer_activations():
     arr = _random_gaussians()
-    out = convert_vertices(arr)
+    out = convert_vertices(arr, upright=False)
     # A standard viewer applies sigmoid to opacity and exp to scale.
     np.testing.assert_allclose(_sigmoid(out["opacity"].astype(np.float64)), arr["opacity"], rtol=1e-5)
     for i in range(3):
@@ -81,10 +82,52 @@ def test_max_radius_drops_far_gaussians():
     np.testing.assert_allclose(out["x"], [0, 1.5, 0, -2])
 
 
+def _quat_to_matrix(q):
+    w, x, y, z = (q / np.linalg.norm(q, axis=1, keepdims=True)).T
+    return np.stack([np.stack([1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)], -1),
+                     np.stack([2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)], -1),
+                     np.stack([2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)], -1)], 1)
+
+
+def _sh(arr, c):
+    """[N, 16] SH coefficients of color channel c (f_dc + 15 f_rest)."""
+    return np.stack([arr[f"f_dc_{c}"]] + [arr[f"f_rest_{c * 15 + k}"] for k in range(15)], 1).astype(np.float64)
+
+
+def test_upright_maps_scene_up_to_plus_y():
+    # The training frame's up is -z; viewers expect +y.
+    np.testing.assert_allclose(UPRIGHT @ [0, 0, -1], [0, 1, 0])
+    assert np.isclose(np.linalg.det(UPRIGHT), 1)
+    arr = _random_gaussians(n=1)
+    arr["x"], arr["y"], arr["z"] = 0.5, 0.25, -2.0
+    out = convert_vertices(arr)
+    np.testing.assert_allclose([out["x"][0], out["y"][0], out["z"][0]], [0.5, 2.0, 0.25], rtol=1e-6)
+
+
+@pytest.mark.parametrize("rot", [UPRIGHT, _quat_to_matrix(np.array([[0.3, -0.5, 0.7, 0.2]]))[0]],
+                         ids=["upright", "arbitrary"])
+def test_rotation_rotates_covariance_and_view_dependent_color(rot):
+    arr = convert_vertices(_random_gaussians(n=50), upright=False)
+    out = rotate_vertices(arr.copy(), rot)
+    # Covariance: R S S^T R^T before, R_new S S^T R_new^T after, and the latter must equal rot @ before @ rot^T.
+    s = np.exp(np.stack([arr[f"scale_{i}"] for i in range(3)], 1).astype(np.float64))
+    def cov(a):
+        r = _quat_to_matrix(np.stack([a[f"rot_{i}"] for i in range(4)], 1).astype(np.float64))
+        return r @ (s[:, :, None] ** 2 * np.eye(3)) @ r.transpose(0, 2, 1)
+    np.testing.assert_allclose(cov(out), rot @ cov(arr) @ rot.T, atol=1e-5)
+    # Color: the rotated Gaussian seen along rot @ d looks like the original seen along d.
+    dirs = np.random.default_rng(1).normal(size=(50, 3))
+    dirs /= np.linalg.norm(dirs, axis=1, keepdims=True)
+    for c in range(3):
+        before = eval_sh(3, _sh(arr, c)[:, None, :], dirs)
+        after = eval_sh(3, _sh(out, c)[:, None, :], dirs @ rot.T)
+        np.testing.assert_allclose(after, before, atol=1e-4)
+
+
 @pytest.mark.parametrize("degree", [0, 1, 2, 3])
 def test_sh_truncation_keeps_lowest_bands_per_channel(degree):
     arr = _random_gaussians()
-    out = convert_vertices(arr, sh_degree=degree)
+    out = convert_vertices(arr, sh_degree=degree, upright=False)
     keep = (degree + 1) ** 2 - 1
     assert len([n for n in out.dtype.names if n.startswith("f_rest_")]) == 3 * keep
     for c in range(3):
