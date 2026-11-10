@@ -43,7 +43,7 @@ parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
 parser.add_argument("--load_checkpoint", type=str, default=None)
 parser.add_argument("--load_ply", type=str, default=None)
 parser.add_argument("--dry_run", action="store_true", default=False)
-parser.add_argument("--torch_cuda_arch_list", type=str, default = '8.0;8.9')
+parser.add_argument("--torch_cuda_arch_list", type=str, default = '8.0;8.9;10.0')
 
 # args for timelapse snapshots (see utils/snapshot_utils.py)
 parser.add_argument("--snapshot_iterations", nargs="+", type=int, default=[])
@@ -160,7 +160,7 @@ def get_combined_args(parser: ArgumentParser, cli_args=None, load_checkpoint=Non
     
     return args
 
-def train_model(cli_args=None, **overrides):
+def train_model(cli_args=None, progress_callback=None, **overrides):
     args_list = cli_args if cli_args is not None else []
 
     cli_parsed, _ = parser.parse_known_args(args_list)
@@ -211,6 +211,7 @@ def train_model(cli_args=None, **overrides):
             "max_points": args.snapshot_max_points,
             "center_scale": args.snapshot_center_scale,
         },
+        progress_callback=progress_callback,
     )
 
 def render_model(cli_args=None, **overrides):

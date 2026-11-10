@@ -12,7 +12,7 @@ from scene.cameras import Camera
 import numpy as np
 from utils.general_utils import PILtoTorch
 from utils.graphics_utils import fov2focal
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 WARNED = False
 

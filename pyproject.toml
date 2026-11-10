@@ -30,6 +30,10 @@ dependencies = [
     "pycolmap-cuda12>=4.2.1",
     "pillow-heif",              # iPhone HEIC photos -> JPEG (COLMAP can't read HEIC)
     "opencv-python-headless",   # video frame extraction + sharpness scoring
+    # Jupyter workflow (example.ipynb, utils/notebook_progress.py dashboard)
+    "ipykernel",
+    "ipython",
+    "psutil",
 ]
 
 [dependency-groups]

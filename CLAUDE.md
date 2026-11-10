@@ -19,7 +19,7 @@ Agreed scope, in priority order:
 
 `docs/` records what we changed in the codebase and why (`docs/viz-tools-changes.md` covers the environment update and visualization tools; `docs/colmap-setup.md` covers COLMAP preprocessing, making `uv sync` build the whole environment, and a review of the HiPerGator work on `main`).
 
-**Branches:** `main` holds a teammate's HiPerGator/B200 work (a notebook workflow, `progress_callback` in `train.py`, `utils/notebook_progress.py`), not merged into `colmap_setup` yet. Its environment is a venv on `/blue` that isn't recorded in git. `docs/colmap-setup.md` §5 has the review and the merge plan.
+**HiPerGator workflow:** `example.ipynb` is a teammate's B200 notebook. It has a hard-coded `/blue/egn5216/Photo_Gauss_Test` repo path and trains through `train_model(progress_callback=TrainingDashboard(...))` (`utils/notebook_progress.py`: live ETA, per-stage timings, GPU memory and host RAM against the SLURM limit). It was written against a separate env on `/blue`; the uv env now includes `ipykernel`, so a kernel can be registered from `.venv` instead (untested on HiPerGator). `docs/colmap-setup.md` §5 has the review of that work and how it was merged.
 
 Course materials are outside this repo, in `/home/pgrau/Sync/School/EEL5406 Comp Phot/Final Project/`:
 - `2605.29136v1(1).pdf`: the paper with its appendix. Read it with the PDF tooling.
@@ -37,7 +37,7 @@ Course materials are outside this repo, in `/home/pgrau/Sync/School/EEL5406 Comp
   - **tiny-cuda-nn build settings** live in `pyproject.toml` (`[tool.uv.extra-build-*]`): built against the runtime torch, `setuptools<81`, half precision off, and `TCNN_CUDA_ARCHITECTURES=86;89;100;120`. The fixed arch list matters because uv caches the built wheel and reuses it on every machine sharing `~/.cache/uv`. A new GPU type means adding its arch there. To force a rebuild after changing the submodule: `uv sync --reinstall-package tinycudann`.
   - The README's original Python 3.9 / PyTorch 2.4.1+cu121 setup is what the paper used. Blackwell (B200 = 10.0, RTX PRO 6000 = 12.0) needs CUDA 12.8 and PyTorch ≥ 2.7. HiPerGator's current GPUs are L4, RTX PRO 6000 and B200 (the A100s were retired).
 - **8 GB cards** (the lab 3060 Ti) ran out of memory at 2M samples. Use `--num_samples=1000000 --num_samples_min=300000 --images=images_4 --resolution=1` with the small attribute grids, which peaked at 7.0 GB including the desktop.
-- `--torch_cuda_arch_list` sets `TORCH_CUDA_ARCH_LIST` before the sampling kernel compiles. The default is `"8.0;8.9"`; use `"8.6"` for an RTX 30xx, `"8.9"` for an RTX 40xx, `"10.0"` for B200, `"12.0"` for RTX PRO 6000. If the compile fails, `sample_cuda` logs a warning and silently falls back to the much slower PyTorch `sample` path, so check the log.
+- `--torch_cuda_arch_list` sets `TORCH_CUDA_ARCH_LIST` before the sampling kernel compiles. The default is `"8.0;8.9;10.0"`; use `"8.6"` for an RTX 30xx, `"8.9"` for an RTX 40xx, `"10.0"` for B200, `"12.0"` for RTX PRO 6000. If the compile fails, `sample_cuda` logs a warning and silently falls back to the much slower PyTorch `sample` path, so check the log.
 
 ## Commands
 
