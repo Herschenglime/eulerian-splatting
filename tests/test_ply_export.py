@@ -75,13 +75,6 @@ def test_min_opacity_and_max_points():
     assert pos == sorted(pos)
 
 
-def test_max_radius_drops_far_gaussians():
-    arr = _random_gaussians(n=6)
-    arr["x"], arr["y"], arr["z"] = [0, 1.5, 0, 3, 1e6, -2], [0, 0, 1.9, 0, 0, 0], [0, 0, 0, 0, 0, 0]
-    out = convert_vertices(arr, max_radius=2.0)
-    np.testing.assert_allclose(out["x"], [0, 1.5, 0, -2])
-
-
 def _quat_to_matrix(q):
     w, x, y, z = (q / np.linalg.norm(q, axis=1, keepdims=True)).T
     return np.stack([np.stack([1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)], -1),

@@ -201,8 +201,8 @@ class GaussianModel:
             (attributes,
              density,
              opt_dict,
-             self.xyz_norm,
-             self.xyz) = model_args
+             self.xyz,
+             self.xyz_norm) = model_args
             
             self.training_setup(training_args)
             self._attributes.load_state_dict(attributes)

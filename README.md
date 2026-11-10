@@ -65,7 +65,12 @@ This installs PyTorch, builds tiny-cuda-nn for RTX 30xx/40xx, L4, B200 and RTX P
 uv run pytest                                    # CPU tests
 scripts/gpu_smoke_test.sh /path/to/tandt/truck   # ~15 min, sized for a 12 GB card
 ```
-For our own captures, `uv run python scripts/run_colmap.py <photos or video> data/<scene>` builds the dataset (see `CLAUDE.md`).
+#### 5. Your own capture
+Write a small config (see `configs/e2e/example.yaml`; only `capture` and `name` are required), then run:
+```bash
+uv run python scripts/e2e.py configs/e2e/<name>.yaml            # --preset full on HiPerGator-class GPUs
+```
+It runs COLMAP, trains with progress snapshots, builds a timelapse, and writes an upright, standard-format splat to `output/<name>/<run>/<name>.ply`. `--resume output/<name>/<run>` continues after a timeout. Details: `docs/e2e-pipeline.md`.
 
 <hr style="height:3px; background-color:#bdbdbd; border:none;">
 

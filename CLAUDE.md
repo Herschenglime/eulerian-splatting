@@ -12,12 +12,12 @@ Agreed scope, in priority order:
 1. Reproduce one benchmark scene (truck or bicycle) next to ground truth, plus a fly-through.
 2. One well-captured "hero" scene of our own (tabletop with stuffed animals), with a fly-through.
 3. A training timelapse showing samples condensing from a uniform cloud (`--snapshot_iterations`).
-4. A views ladder on the hero capture (all → ~30 → ~10 views) using `--train_subset`, with poses from the full COLMAP run.
+4. A fewer-views comparison on the hero capture: train on all views, then ~30, then ~10 (`--train_subset`), with poses from one COLMAP run on all images, and compare renders of the same held-out views.
 5. A mirror or glossy object (reflections reconstructed as a fake "room behind the glass").
 - Stretch: a person holding still; the whole classroom.
 - Cut: underwater, SLAM poses, low light, auto-exposure comparisons, checkerboard calibration. Poses come from COLMAP; phone captures use locked exposure/ISO/white balance/focus, one lens, stabilization off, shutter around 1/250 s or faster.
 
-`docs/` records what we changed in the codebase and why (`docs/viz-tools-changes.md` covers the environment update and visualization tools; `docs/colmap-setup.md` covers COLMAP preprocessing, making `uv sync` build the whole environment, and a review of the HiPerGator work on `main`).
+`docs/` records what we changed in the codebase and why (`docs/viz-tools-changes.md` covers the environment update and visualization tools; `docs/colmap-setup.md` covers COLMAP preprocessing, making `uv sync` build the whole environment, and a review of the HiPerGator work on `main`; `docs/e2e-pipeline.md` covers the one-command pipeline and the resume fixes).
 
 **HiPerGator workflow:** `example.ipynb` is a teammate's B200 notebook. It has a hard-coded `/blue/egn5216/Photo_Gauss_Test` repo path and trains through `train_model(progress_callback=TrainingDashboard(...))` (`utils/notebook_progress.py`: live ETA, per-stage timings, GPU memory and host RAM against the SLURM limit). It was written against a separate env on `/blue`; the uv env now includes `ipykernel`, so a kernel can be registered from `.venv` instead (untested on HiPerGator). `docs/colmap-setup.md` §5 has the review of that work and how it was merged.
 
@@ -68,24 +68,27 @@ python metrics.py --model_paths output/bicycle/<run> [more runs...]
 python train.py --config=bicycle --source_path=... --dry_run --load_checkpoint=<model_path>/checkpoints/checkpoint_N.pth
 
 # our additions
-python train.py ... --train_subset=30                             # views ladder
+python train.py ... --train_subset=30                             # keep 30 evenly spaced training views
 python train.py ... --snapshot_iterations 1 500 2000 5000 30000 [--snapshot_views 0 3]
 python scripts/make_timelapse.py output/<scene>/<run>             # -> snapshots/timelapse_view*.gif, contact_view*.png
-python scripts/export_ply.py <run>/point_cloud/iteration_N.ply out.ply [--min_opacity 0.005] [--sh_degree 0] [--max_radius 10]
+python scripts/export_ply.py <run>/point_cloud/iteration_N.ply out.ply [--min_opacity 0.005] [--sh_degree 0] [--max_radius 1000]
+python scripts/crop_ply.py in.ply out.ply --max_radius 1000      # any PLY, raw or exported
 ```
 
-- `--train_subset N` keeps N evenly spaced training views (by filename), applied *after* the test split and *after* the scene normalization, so every run of a views ladder has the same test set and coordinate frame. The kept names go to `<run>/train_subset.txt`. Use it instead of `--load_ncameras`.
+**Own captures, one command:** `uv run python scripts/e2e.py configs/e2e/<name>.yaml [--preset small|full] [--holdout] [-- <train.py flags>]` runs COLMAP (reused if `data/<name>` exists), training with snapshots and checkpoints, the timelapse and the upright export to `output/<name>/<run>/<name>.ply`. `--resume output/<name>/<run>` continues from the latest checkpoint. Training uses every image unless `holdout` is set; held-out views never affect training. Config keys, presets and disk use: `docs/e2e-pipeline.md`.
+
+- `--train_subset N` keeps N evenly spaced training views (by filename), applied *after* the test split and *after* the scene normalization, so runs with different view counts share the same test set and coordinate frame. The kept names go to `<run>/train_subset.txt`. Use it instead of `--load_ncameras`.
 - `--snapshot_iterations` (off by default) writes `<run>/snapshots/iter_N_view{k}_render.png`, `..._centers.png` (every Gaussian shrunk to an opaque dot, to show where samples are) and `iter_N_gaussians.ply` (a random subset, standard format, SH degree 0). Views index the test cameras. A failed snapshot logs a warning and never stops training.
-- **Saved PLYs are not in the standard 3DGS format**: `save_ply` writes activated opacity (0–1) and world-unit scales, while viewers expect a logit and a log. Always run `scripts/export_ply.py` before opening one in SuperSplat or another viewer; otherwise the scene looks like huge semi-transparent blobs. Also pass `--max_radius` (around 10; the training cameras fit in [-1,1]^3). Background Gaussians sampled in the contracted outer shell un-contract to millions of units away; the NemeSys export's bounding box was ±8.4M. SuperSplat bases its zoom range on the whole bounding box (closest approach ≈ 1e-6 × bound radius / sin(42.5°)), so uncropped, the scene is a dot you can't zoom into. Exports are also rotated upright by default (`UPRIGHT` in `utils/ply_export.py`, −90° about x). The training frame puts the scene's up at −z (camera centers are PCA-aligned and flipped so the OpenCV camera y axis points +z). Standard 3DGS PLYs have up at −y, and SuperSplat rotates every PLY 180° about z on load to show it upright. The rotation covers positions, quaternions and SH coefficients. Pass `--no_upright` to keep the training frame. Snapshot PLYs get the same rotation.
+- **Saved PLYs are not in the standard 3DGS format**: `save_ply` writes activated opacity (0–1) and world-unit scales, while viewers expect a logit and a log. Always run `scripts/export_ply.py` before opening one in SuperSplat or another viewer; otherwise the scene looks like huge semi-transparent blobs. The export keeps everything unless asked to crop. Background Gaussians sampled in the contracted outer shell un-contract to millions of units away; the NemeSys export's bounding box was ±8.4M. SuperSplat bases its zoom range on the whole bounding box (closest approach ≈ 1e-6 × bound radius / sin(42.5°)), so for SuperSplat crop at radius ~1000 (`--max_radius`, or `scripts/crop_ply.py`), which kept 99.9% of NemeSys. A tight radius (~10; the training cameras fit in [-1,1]^3) also drops distant background such as a room's walls. Exports are also rotated upright by default (`UPRIGHT` in `utils/ply_export.py`, −90° about x). The training frame puts the scene's up at −z (camera centers are PCA-aligned and flipped so the OpenCV camera y axis points +z). Standard 3DGS PLYs have up at −y, and SuperSplat rotates every PLY 180° about z on load to show it upright. The rotation covers positions, quaternions and SH coefficients. Pass `--no_upright` to keep the training frame. Snapshot PLYs get the same rotation.
 
 - `--dry_run` turns wandb off. Without it, the run calls `wandb.login()`. Tensorboard logging is used if it is installed.
 - `--test_interval=5000` evaluates more often. On headless machines, pass `--disable_visualize`; the test-grid PNG is still saved to the run folder.
-- `--checkpoint_iterations` defaults to empty, so no `.pth` checkpoints are written unless you pass it.
+- `--checkpoint_iterations` defaults to empty, so no `.pth` checkpoints are written unless you pass it. `--keep_last_checkpoint` deletes older ones after each save. Resuming works from checkpoints of either phase, from the CLI (`--load_checkpoint`) or from Python (`load_checkpoint=` kwarg). A resumed run must be given the same iteration and schedule settings: the run's `cfg_args` only stores model and Gaussian parameters, not optimization or snapshot settings, which is why `e2e.py --resume` replays the run's `e2e_config.yaml`.
 - The same entry points can be called from Python with kwargs: `run.train_model(config=..., source_path=...)`, `render_model`, and `evaluate_model`. See `example.ipynb`.
 
 ## Config system (run.py `make_args` / `get_combined_args`)
 
-- `--config <name>` is required. It is a **name**, not a path, and resolves to `configs/scenes/<name>.yaml`. Each new scene of our own needs a YAML in that folder.
+- `--config <name>` is required. It is a **name**, not a path, and resolves to `configs/scenes/<name>.yaml`. Our own captures can share `configs/scenes/capture.yaml` (what `scripts/e2e.py` uses) instead of each needing a YAML.
 - Precedence, lowest to highest: argparse defaults in `arguments/__init__.py`, then the scene YAML, then `configs/attribute_grids.yaml` (or the file given by `--attrib_config`), then flags explicitly typed on the CLI, then Python kwargs. Rendering and resuming also apply the run's saved `cfg_args`.
 - Boolean params use `store_true`, and several default to True: `eval`, `normalize_cameras`, `contract_xyz`, `noise_samples`, `snap_to_center`, `random_background`. **You cannot turn these off from the CLI.** Set them to `false` in a YAML or pass a kwarg instead. The paper's Table 2 ablations map to these settings:
   - no sample rounding: `snap_to_center: false`
@@ -125,7 +128,7 @@ Writes `<out>/images/` (undistorted) and `<out>/sparse/0/` (PINHOLE), plus `imag
 - If several disconnected models come out, the largest is kept with a warning. Look at `unregistered_images` in the summary; `--skip_input` re-runs SfM after you prune `input/` by hand.
 - Unverified: whether pycolmap's GPU SIFT runs on Blackwell (B200, RTX PRO 6000). Check on the first HiPerGator run.
 
-For the views ladder, run COLMAP once on **all** images of a capture and subsample afterwards with `--train_subset`, so pose quality doesn't change between runs.
+For fewer-views comparisons, run COLMAP once on **all** images of a capture and subsample afterwards with `--train_subset`, so pose quality doesn't change between runs.
 
 ## Architecture: paper to code
 
@@ -160,7 +163,7 @@ After `iterations`, `convert2refinement` turns one final sample into explicit pe
 - `z_threshold` (near-plane cull, App. A4.3; the truck and train YAMLs set it to 0.05) is stored on `GaussianModel` but never passed to the renderer, so changing it has no effect.
 - `center_xyz` (in `attribute_grids.yaml`) and `anisotropy_loss` are unused.
 - `--load_ply` without `--refinement` crashes, because `Scene.load` calls `gaussians.sample()` without its required `iteration` argument.
-- Resuming from a checkpoint saved during refinement fails. The model is rebuilt in probabilistic mode and `restore` expects the 5-tuple. Only checkpoint at iterations ≤ `iterations`.
+- (Fixed on the `e2e` branch) Resuming was broken three ways: `get_combined_args` swallowed a `load_checkpoint` kwarg, refinement-phase checkpoints crashed on restore, and probabilistic-phase restores swapped `xyz`/`xyz_norm`.
 
 ## Outputs
 

@@ -2,7 +2,7 @@
 
 Usage:
     python scripts/export_ply.py output/<scene>/<run>/point_cloud/iteration_35000.ply out.ply \
-        [--min_opacity 0.005] [--max_points 3000000] [--sh_degree 0] [--max_radius 10]
+        [--min_opacity 0.005] [--max_points 3000000] [--sh_degree 0] [--max_radius 1000]
 """
 
 import argparse
@@ -22,8 +22,8 @@ def main(argv=None):
                         help="drop Gaussians less opaque than this (0.005 is a good start)")
     parser.add_argument("--max_radius", type=float, default=None,
                         help="drop Gaussians farther than this from the origin (cameras fit in [-1,1]^3); "
-                             "the far background shell otherwise reaches millions of units and SuperSplat "
-                             "can't zoom in on the scene. 10 is a good start")
+                             "see utils/ply_crop.py. 1000 removes only the far tail that stops SuperSplat "
+                             "from zooming in")
     parser.add_argument("--no_upright", action="store_true",
                         help="keep the training frame (scene up = -z) instead of rotating up to -y, "
                              "the standard 3DGS/viewer convention")

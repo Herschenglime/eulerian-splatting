@@ -9,6 +9,7 @@
 #
 
 import os
+import glob
 import json
 import time
 import yaml
@@ -43,7 +44,7 @@ try:
 except ImportError:
     WANDB_FOUND = False
 
-def training(dataset, gaussian_params, opt, pipe, test_iterations, test_interval, saving_iterations, checkpoint_iterations, checkpoint, load_ply, debug_from, dry_run=True, visualize=True, seed=42, log_level=2, snapshot_args=None, progress_callback=None):
+def training(dataset, gaussian_params, opt, pipe, test_iterations, test_interval, saving_iterations, checkpoint_iterations, checkpoint, load_ply, debug_from, dry_run=True, visualize=True, seed=42, log_level=2, snapshot_args=None, progress_callback=None, keep_last_checkpoint=False):
     logging.set_verbosity(log_level)
 
     # Optional progress hook (used by utils/notebook_progress.py). Called as
@@ -86,6 +87,11 @@ def training(dataset, gaussian_params, opt, pipe, test_iterations, test_interval
     gaussians.training_setup(opt)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint, weights_only=False)
+        if len(model_params) == 7 and not gaussians.refinement:
+            # Saved during refinement (capture() returned the explicit per-Gaussian tensors):
+            # switch to refinement mode, as convert2refinement does, before restoring.
+            gaussians.refinement = True
+            gaussians.render_extras = {'method': 'default'}
         gaussians.restore(model_params, opt)
         logging.info("\n[ITER {}] Loaded checkpoint at {:s}".format(first_iter, checkpoint))
     elif load_ply:
@@ -242,6 +248,10 @@ def training(dataset, gaussian_params, opt, pipe, test_iterations, test_interval
                 mkdir_p(os.path.dirname(save_path))
                 t_save = time.perf_counter()
                 torch.save((gaussians.capture(), iteration), save_path)
+                if keep_last_checkpoint:
+                    for old in glob.glob(os.path.join(os.path.dirname(save_path), "checkpoint_*.pth")):
+                        if old != save_path:
+                            os.remove(old)
                 notify("checkpoint", iteration=iteration, path=save_path, seconds=time.perf_counter() - t_save)
 
             # Optimizer step

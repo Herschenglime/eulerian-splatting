@@ -11,6 +11,7 @@ It also rotates the scene upright for viewers (see UPRIGHT). Runs on the CPU.
 import numpy as np
 from plyfile import PlyData, PlyElement
 
+from utils.ply_crop import within_radius
 from utils.sh_utils import eval_sh
 
 OPACITY_EPS = 1e-6
@@ -141,10 +142,7 @@ def convert_vertices(arr, min_opacity=0.0, max_points=None, sh_degree=None, max_
     min_opacity: drop Gaussians whose (activated) opacity is below this.
     max_points:  keep only the N most opaque Gaussians (original order kept).
     sh_degree:   drop higher-order SH coefficients (0 keeps only f_dc).
-    max_radius:  drop Gaussians farther than this from the origin. Positions are in the
-                 normalized scene frame (training cameras inside [-1,1]^3), and the
-                 uncontracted outer shell reaches millions of units, which makes viewers
-                 that frame the whole bounding box (SuperSplat) show the scene as a dot.
+    max_radius:  drop Gaussians farther than this from the origin (utils/ply_crop.py).
     upright:     rotate by UPRIGHT so the scene's up is -y, as in standard 3DGS PLYs.
     force:       skip the "already converted?" sanity check.
     """
@@ -155,7 +153,7 @@ def convert_vertices(arr, min_opacity=0.0, max_points=None, sh_degree=None, max_
     if min_opacity > 0:
         keep &= arr["opacity"] >= min_opacity
     if max_radius is not None:
-        keep &= arr["x"].astype(np.float64) ** 2 + arr["y"] ** 2 + arr["z"] ** 2 <= max_radius ** 2
+        keep &= within_radius(arr, max_radius)
     idx = np.nonzero(keep)[0]
     if max_points is not None and len(idx) > max_points:
         top = np.argsort(-arr["opacity"][idx], kind="stable")[:max_points]

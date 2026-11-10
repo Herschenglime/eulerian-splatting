@@ -41,6 +41,7 @@ parser.add_argument("--quiet", action="store_true", default=False)
 parser.add_argument("--disable_visualize", action="store_true", default=False)
 parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
 parser.add_argument("--load_checkpoint", type=str, default=None)
+parser.add_argument("--keep_last_checkpoint", action="store_true", default=False)  # delete older checkpoints after each save
 parser.add_argument("--load_ply", type=str, default=None)
 parser.add_argument("--dry_run", action="store_true", default=False)
 parser.add_argument("--torch_cuda_arch_list", type=str, default = '8.0;8.9;10.0')
@@ -96,7 +97,7 @@ def make_args(cli_args=None, **overrides):
 
     return args
 
-def get_combined_args(parser: ArgumentParser, cli_args=None, load_checkpoint=None, **overrides):
+def get_combined_args(parser: ArgumentParser, cli_args=None, **overrides):
     args_list = cli_args if cli_args is not None else []
     
     cli_parsed = parser.parse_args(args_list)
@@ -212,6 +213,7 @@ def train_model(cli_args=None, progress_callback=None, **overrides):
             "center_scale": args.snapshot_center_scale,
         },
         progress_callback=progress_callback,
+        keep_last_checkpoint=args.keep_last_checkpoint,
     )
 
 def render_model(cli_args=None, **overrides):

@@ -162,3 +162,17 @@ def test_cli_flags_reach_training(monkeypatch):
     assert captured["args"][1].attribute_params.encoding["log2_hashmap_size"] == 23
     assert captured["kwargs"]["snapshot_args"]["iterations"] == []  # off by default
     assert captured["args"][0].train_subset == -1
+
+
+def test_resume_kwargs_reach_training(monkeypatch, tmp_path):
+    """A Python caller (scripts/e2e.py --resume) passes load_checkpoint as a kwarg."""
+    import run
+
+    (tmp_path / "cfg_args").write_text("Namespace()")
+    ckpt = str(tmp_path / "checkpoints" / "checkpoint_350.pth")
+    captured = {}
+    monkeypatch.setattr(run, "training", lambda *a, **k: captured.update(args=a, kwargs=k) or "model")
+    run.train_model(config="truck", source_path="/data/truck", model_path=str(tmp_path), load_checkpoint=ckpt,
+                    keep_last_checkpoint=True)
+    assert captured["args"][8] == ckpt  # training(..., checkpoint_iterations, checkpoint, ...)
+    assert captured["kwargs"]["keep_last_checkpoint"] is True

@@ -11,7 +11,9 @@ Output layout (the same as 3DGS's convert.py):
     <out>/images/       undistorted images (what train.py reads)
     <out>/sparse/0/     PINHOLE camera, poses and SfM points
     <out>/images_N/     copies downsampled by N (--downsample), for --images images_N --resolution 1
-    <out>/colmap_summary.json
+    <out>/colmap_summary.json  registration stats, plus capture checks (warnings only, nothing removed):
+                        camera settings that vary across photos (EXIF), blurry images, and video
+                        frames nearly identical to the previous one
 
 All images share one camera, whose intrinsics COLMAP estimates. Feature extraction and matching
 run on the GPU (no CPU fallback). Matching is exhaustive up to EXHAUSTIVE_MAX images.
@@ -69,6 +71,95 @@ def prepare_photos(src_dir, input_dir, max_size):
     return len(names)
 
 
+# EXIF fields that should stay fixed across a capture (locked exposure, white balance, one lens).
+SETTINGS_TAGS = {0x829A: "ExposureTime", 0x8827: "ISO", 0xA402: "ExposureMode", 0xA403: "WhiteBalance",
+                 0x829D: "FNumber", 0x920A: "FocalLength", 0xA434: "LensModel"}
+BLUR_RATIO = 0.5      # flag images less than half as sharp as the capture's median
+STATIC_DIFF = 2.0     # flag a frame whose mean abs difference (0-255) from the previous one is below this
+
+
+def _sharpness(gray):
+    """Variance of the Laplacian on a half-size greyscale image (higher = sharper)."""
+    small = cv2.resize(gray, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA)
+    return float(cv2.Laplacian(small, cv2.CV_64F).var())
+
+
+def _format_setting(name, value):
+    if name == "ExposureTime" and 0 < float(value) < 1:
+        return f"1/{round(1 / float(value))} s"
+    if isinstance(value, (bytes, str)):
+        return str(value).strip("\x00 ")
+    return f"{float(value):g}"
+
+
+def capture_settings(paths):
+    """{field: {value: count}} for SETTINGS_TAGS across the photos' EXIF."""
+    counts = {name: {} for name in SETTINGS_TAGS.values()}
+    for path in paths:
+        with Image.open(path) as img:
+            exif = img.getexif()
+            tags = {**exif, **exif.get_ifd(0x8769)}
+        for tag, name in SETTINGS_TAGS.items():
+            value = _format_setting(name, tags[tag]) if tag in tags else "missing"
+            counts[name][value] = counts[name].get(value, 0) + 1
+    return counts
+
+
+def varying_settings(settings):
+    return [name for name, values in settings.items() if len(values) > 1]
+
+
+def flag_blurry(scores, ratio=BLUR_RATIO):
+    """Names whose sharpness is below ratio x the median, sharpest-last."""
+    if not scores:
+        return []
+    cutoff = ratio * float(np.median(list(scores.values())))
+    return sorted((n for n, s in scores.items() if s < cutoff), key=scores.get)
+
+
+def flag_static(diffs, threshold=STATIC_DIFF):
+    """Names of frames nearly identical to the frame before them. diffs: [(name, diff)] in order."""
+    return [name for name, diff in diffs if diff < threshold]
+
+
+def check_capture(capture, input_dir, is_video):
+    """Warnings about the capture, for colmap_summary.json. Never removes anything."""
+    names = sorted(os.listdir(input_dir))
+    scores, diffs, prev = {}, [], None
+    for name in names:
+        gray = cv2.imread(os.path.join(input_dir, name), cv2.IMREAD_GRAYSCALE)
+        scores[name] = _sharpness(gray)
+        tiny = cv2.resize(gray, (64, round(64 * gray.shape[0] / gray.shape[1])), interpolation=cv2.INTER_AREA)
+        if prev is not None and tiny.shape == prev.shape:
+            diffs.append((name, float(np.abs(tiny.astype(np.float32) - prev).mean())))
+        prev = tiny.astype(np.float32)
+    checks = {"sharpness": {n: round(s, 1) for n, s in scores.items()}, "blurry_images": flag_blurry(scores)}
+    warnings = len(checks["blurry_images"])
+    if checks["blurry_images"]:
+        print(f"  WARNING: {len(checks['blurry_images'])} blurry images (sharpness < {BLUR_RATIO} x median): "
+              + ", ".join(checks["blurry_images"][:10]))
+    if is_video:
+        checks["capture_settings"] = "not available: phone videos carry no per-frame exposure data"
+        checks["frame_difference"] = {n: round(d, 2) for n, d in diffs}
+        checks["static_frames"] = flag_static(diffs)
+        warnings += len(checks["static_frames"])
+        if checks["static_frames"]:
+            print(f"  WARNING: {len(checks['static_frames'])} frames nearly identical to the previous one "
+                  f"(camera not moving): " + ", ".join(checks["static_frames"][:10]))
+    else:
+        photos = sorted(os.path.join(capture, f) for f in os.listdir(capture)
+                        if os.path.splitext(f)[1].lower() in PHOTO_EXTS)
+        settings = capture_settings(photos)
+        checks["capture_settings"] = settings
+        warnings += len(varying_settings(settings))
+        for name in varying_settings(settings):
+            values = ", ".join(f"{v} ({n})" for v, n in settings[name].items())
+            print(f"  WARNING: {name} varies across photos: {values}")
+    if not warnings:
+        print("  no problems found")
+    return checks
+
+
 def extract_video_frames(video, input_dir, fps, max_size):
     """Keep the sharpest frame (variance of the Laplacian) in each 1/fps-second window."""
     cap = cv2.VideoCapture(video)
@@ -78,7 +169,6 @@ def extract_video_frames(video, input_dir, fps, max_size):
     window = max(1, round(src_fps / fps))
     os.makedirs(input_dir, exist_ok=True)
     best, best_score, n_written, idx = None, -1.0, 0, 0
-    sharpness = []
 
     def flush():
         nonlocal best, best_score, n_written
@@ -86,16 +176,13 @@ def extract_video_frames(video, input_dir, fps, max_size):
             n_written += 1
             img = _resize_to(Image.fromarray(cv2.cvtColor(best, cv2.COLOR_BGR2RGB)), max_size)
             img.save(os.path.join(input_dir, f"frame_{n_written:05d}.jpg"), quality=95)
-            sharpness.append(best_score)
         best, best_score = None, -1.0
 
     while True:
         ok, frame = cap.read()
         if not ok:
             break
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        small = cv2.resize(gray, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA)
-        score = cv2.Laplacian(small, cv2.CV_64F).var()
+        score = _sharpness(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
         if score > best_score:
             best, best_score = frame, score
         idx += 1
@@ -105,7 +192,7 @@ def extract_video_frames(video, input_dir, fps, max_size):
     flush()
     cap.release()
     print(f"\r  {idx} frames at {src_fps:.1f} fps -> {n_written} kept (1 per {window} frames) in {input_dir}")
-    return n_written, sharpness
+    return n_written
 
 
 def run_sfm(input_dir, distorted_dir, matcher, mapper, camera_model):
@@ -211,11 +298,13 @@ def main(argv=None):
     if args.skip_input:
         n_input = len(os.listdir(input_dir))
     elif is_video:
-        n_input, sharpness = extract_video_frames(args.capture, input_dir, args.fps, args.max_size)
-        summary.update(fps=args.fps, frame_sharpness_min=float(np.min(sharpness)),
-                       frame_sharpness_median=float(np.median(sharpness)))
+        n_input = extract_video_frames(args.capture, input_dir, args.fps, args.max_size)
+        summary["fps"] = args.fps
     else:
         n_input = prepare_photos(args.capture, input_dir, args.max_size)
+
+    print("== checking the capture")
+    summary.update(check_capture(args.capture, input_dir, is_video))
 
     matcher = args.matcher if args.matcher != "auto" else \
         ("exhaustive" if n_input <= EXHAUSTIVE_MAX else "sequential")
