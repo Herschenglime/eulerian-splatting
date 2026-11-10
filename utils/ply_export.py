@@ -19,11 +19,13 @@ SCALE_EPS = 1e-12
 # Training happens in the frame of utils/camera_utils.transform_poses_pca: camera centers are
 # PCA-aligned, and the frame is flipped so the cameras' (OpenCV, image-down) y axis points +z.
 # For captures where the cameras circle the subject, the scene's up is therefore -z (measured
-# on our NemeSys photos: mean camera up (0.07, 0, -1.00)). Viewers such as SuperSplat treat +y
-# as up, so exports are rotated +90 degrees about x, which maps -z to +y.
+# on our NemeSys photos: mean camera up (0.07, 0, -1.00)). Standard 3DGS PLYs keep COLMAP's
+# OpenCV-style frame, where up is -y, and viewers expect that: SuperSplat rotates every PLY 180
+# degrees about z on load (undone on export, src/splat-serialize.ts), which puts -y on screen-up.
+# So exports are rotated -90 degrees about x, which maps -z to -y.
 UPRIGHT = np.array([[1.0, 0.0, 0.0],
-                    [0.0, 0.0, -1.0],
-                    [0.0, 1.0, 0.0]])
+                    [0.0, 0.0, 1.0],
+                    [0.0, -1.0, 0.0]])
 
 
 def _names(arr, prefix):
@@ -143,7 +145,7 @@ def convert_vertices(arr, min_opacity=0.0, max_points=None, sh_degree=None, max_
                  normalized scene frame (training cameras inside [-1,1]^3), and the
                  uncontracted outer shell reaches millions of units, which makes viewers
                  that frame the whole bounding box (SuperSplat) show the scene as a dot.
-    upright:     rotate by UPRIGHT so the scene's up is +y, as viewers expect.
+    upright:     rotate by UPRIGHT so the scene's up is -y, as in standard 3DGS PLYs.
     force:       skip the "already converted?" sanity check.
     """
     if not force:

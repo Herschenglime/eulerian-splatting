@@ -94,14 +94,14 @@ def _sh(arr, c):
     return np.stack([arr[f"f_dc_{c}"]] + [arr[f"f_rest_{c * 15 + k}"] for k in range(15)], 1).astype(np.float64)
 
 
-def test_upright_maps_scene_up_to_plus_y():
-    # The training frame's up is -z; viewers expect +y.
-    np.testing.assert_allclose(UPRIGHT @ [0, 0, -1], [0, 1, 0])
+def test_upright_maps_scene_up_to_minus_y():
+    # The training frame's up is -z; standard 3DGS PLYs (and SuperSplat) have up at -y.
+    np.testing.assert_allclose(UPRIGHT @ [0, 0, -1], [0, -1, 0])
     assert np.isclose(np.linalg.det(UPRIGHT), 1)
     arr = _random_gaussians(n=1)
     arr["x"], arr["y"], arr["z"] = 0.5, 0.25, -2.0
     out = convert_vertices(arr)
-    np.testing.assert_allclose([out["x"][0], out["y"][0], out["z"][0]], [0.5, 2.0, 0.25], rtol=1e-6)
+    np.testing.assert_allclose([out["x"][0], out["y"][0], out["z"][0]], [0.5, -2.0, -0.25], rtol=1e-6)
 
 
 @pytest.mark.parametrize("rot", [UPRIGHT, _quat_to_matrix(np.array([[0.3, -0.5, 0.7, 0.2]]))[0]],

@@ -25,7 +25,8 @@ def main(argv=None):
                              "the far background shell otherwise reaches millions of units and SuperSplat "
                              "can't zoom in on the scene. 10 is a good start")
     parser.add_argument("--no_upright", action="store_true",
-                        help="keep the training frame (scene up = -z) instead of rotating up to +y for viewers")
+                        help="keep the training frame (scene up = -z) instead of rotating up to -y, "
+                             "the standard 3DGS/viewer convention")
     parser.add_argument("--max_points", type=int, default=None,
                         help="keep only the N most opaque Gaussians")
     parser.add_argument("--sh_degree", type=int, default=None, choices=[0, 1, 2, 3],
