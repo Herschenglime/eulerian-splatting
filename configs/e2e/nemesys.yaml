@@ -1,0 +1,4 @@
+# NemeSys ROV on a lab bench: 64 iPhone 15 photos. Exposure was not locked (1/60 s and 1/40 s).
+capture: data/NemeSys
+name: nemesys
+preset: small

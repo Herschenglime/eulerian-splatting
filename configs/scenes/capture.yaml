@@ -1,0 +1,10 @@
+# Shared scene config for our own captures (used by scripts/e2e.py), so a new capture doesn't
+# need its own YAML. Object-centric schedule of the paper's non-outdoor scenes: 60K + 5K.
+# num_samples_min has no 3DGS-MCMC count to copy for our scenes; 2M is a guess.
+random_background: true
+white_background: false
+resolution: 1
+num_samples_min: 2_000_000
+iterations: 60_000
+refinement_iterations: 5000
+save_iterations: [60_000, 65_000]

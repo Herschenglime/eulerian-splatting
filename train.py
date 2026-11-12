@@ -9,6 +9,7 @@
 #
 
 import os
+import glob
 import json
 import time
 import yaml
@@ -29,6 +30,7 @@ from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams, GaussianParams
 from utils.viz_utils import visualize_test
+from utils.snapshot_utils import snapshot_cameras, take_snapshot
 from absl import logging
 
 try:
@@ -42,7 +44,7 @@ try:
 except ImportError:
     WANDB_FOUND = False
 
-def training(dataset, gaussian_params, opt, pipe, test_iterations, test_interval, saving_iterations, checkpoint_iterations, checkpoint, load_ply, debug_from, dry_run=True, visualize=True, seed=42, log_level=2, progress_callback=None):
+def training(dataset, gaussian_params, opt, pipe, test_iterations, test_interval, saving_iterations, checkpoint_iterations, checkpoint, load_ply, debug_from, dry_run=True, visualize=True, seed=42, log_level=2, snapshot_args=None, progress_callback=None, keep_last_checkpoint=False):
     logging.set_verbosity(log_level)
 
     # Optional progress hook (used by utils/notebook_progress.py). Called as
@@ -85,6 +87,11 @@ def training(dataset, gaussian_params, opt, pipe, test_iterations, test_interval
     gaussians.training_setup(opt)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint, weights_only=False)
+        if len(model_params) == 7 and not gaussians.refinement:
+            # Saved during refinement (capture() returned the explicit per-Gaussian tensors):
+            # switch to refinement mode, as convert2refinement does, before restoring.
+            gaussians.refinement = True
+            gaussians.render_extras = {'method': 'default'}
         gaussians.restore(model_params, opt)
         logging.info("\n[ITER {}] Loaded checkpoint at {:s}".format(first_iter, checkpoint))
     elif load_ply:
@@ -107,6 +114,10 @@ def training(dataset, gaussian_params, opt, pipe, test_iterations, test_interval
     test_iterations = set(test_iterations)
     saving_iterations = set(saving_iterations)
     checkpoint_iterations = set(checkpoint_iterations)
+
+    snapshot_args = snapshot_args or {}
+    snapshot_iterations = set(snapshot_args.get("iterations", []))
+    snapshot_cams = snapshot_cameras(scene, snapshot_args.get("views", [0])) if snapshot_iterations else []
 
     iter_start = torch.cuda.Event(enable_timing = True)
     iter_end = torch.cuda.Event(enable_timing = True)
@@ -237,6 +248,10 @@ def training(dataset, gaussian_params, opt, pipe, test_iterations, test_interval
                 mkdir_p(os.path.dirname(save_path))
                 t_save = time.perf_counter()
                 torch.save((gaussians.capture(), iteration), save_path)
+                if keep_last_checkpoint:
+                    for old in glob.glob(os.path.join(os.path.dirname(save_path), "checkpoint_*.pth")):
+                        if old != save_path:
+                            os.remove(old)
                 notify("checkpoint", iteration=iteration, path=save_path, seconds=time.perf_counter() - t_save)
 
             # Optimizer step
@@ -251,6 +266,16 @@ def training(dataset, gaussian_params, opt, pipe, test_iterations, test_interval
                        loss=loss, l1=Ll1, num_gaussians=gaussians.get_xyz.shape[0],
                        image=image, gt=gt_image, cam_name=viewpoint_cam.image_name,
                        timings=stage_timings)
+
+            # Timelapse snapshot (after the step, so it reflects this iteration's update)
+            if iteration in snapshot_iterations:
+                try:
+                    take_snapshot(iteration, gaussians, snapshot_cams, render, pipe,
+                                  os.path.join(scene.model_path, "snapshots"),
+                                  max_points=snapshot_args.get("max_points", 500_000),
+                                  center_scale=snapshot_args.get("center_scale", 0.002))
+                except Exception as e:  # never kill a long run over a visualization
+                    logging.warning("Snapshot at iteration {} failed: {}".format(iteration, e))
 
 
     if WANDB_FOUND and (not dry_run):
@@ -275,7 +300,9 @@ def to_namespace(obj):
         
 def prepare_output_and_logger(args, gargs):
     if WANDB_FOUND:
-        if wandb.run.offline:
+        # --dry_run inits wandb with mode="disabled"; recent wandb returns a no-op run whose
+        # `offline` is False, so check `disabled` too.
+        if wandb.run.offline or getattr(wandb.run, "disabled", False):
             wandb_writer = False
             logging.info("Wandb not available: not logging progress")
         else:

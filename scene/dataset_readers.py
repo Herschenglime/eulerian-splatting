@@ -23,6 +23,7 @@ from plyfile import PlyData, PlyElement
 from utils.sh_utils import SH2RGB
 from utils.camera_utils import transform_poses_pca
 from models.gaussian_model import BasicPointCloud
+from utils.subset_utils import select_subset
 
 class CameraInfo(NamedTuple):
     uid: int
@@ -144,7 +145,7 @@ def storePly(path, xyz, rgb):
     ply_data = PlyData([vertex_element])
     ply_data.write(path)
 
-def readColmapSceneInfo(path, images, eval, llffhold=8, init_type="sfm", num_pts=100000, seed=42):
+def readColmapSceneInfo(path, images, eval, llffhold=8, init_type="sfm", num_pts=100000, seed=42, train_subset=-1):
     try:
         cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.bin")
         cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.bin")
@@ -167,8 +168,11 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, init_type="sfm", num_pts
         train_cam_infos = cam_infos
         test_cam_infos = []
 
+    # Normalize with the full training set, then subset, so every run of a views
+    # ladder shares the same scene frame and test set.
     nerf_normalization = getPCAtransform(train_cam_infos)
-    
+    train_cam_infos = select_subset(train_cam_infos, train_subset)
+
     if init_type == "sfm":
         ply_path = os.path.join(path, "sparse/0/points3D.ply")
         bin_path = os.path.join(path, "sparse/0/points3D.bin")
@@ -194,6 +198,7 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, init_type="sfm", num_pts
 
         if not os.path.exists(ply_path):
             print(f"Generating random point cloud ({num_pts})...")
+            os.makedirs(os.path.dirname(ply_path), exist_ok=True)
             storePly(ply_path, xyz, SH2RGB(shs) * 255)
 
     else:
@@ -253,7 +258,7 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
             
     return cam_infos
 
-def readNerfSyntheticInfo(path, white_background, eval, extension=".png"):
+def readNerfSyntheticInfo(path, white_background, eval, extension=".png", train_subset=-1):
     print("Reading Training Transforms")
     train_cam_infos = readCamerasFromTransforms(path, "transforms_train.json", white_background, extension)
     print("Reading Test Transforms")
@@ -264,6 +269,7 @@ def readNerfSyntheticInfo(path, white_background, eval, extension=".png"):
         test_cam_infos = []
 
     nerf_normalization = getPCAtransform(train_cam_infos)
+    train_cam_infos = select_subset(train_cam_infos, train_subset)
 
     scene_info = SceneInfo(point_cloud=None,
                            train_cameras=train_cam_infos,

@@ -1,0 +1,31 @@
+# Config for scripts/e2e.py: one capture, from photos/video to a viewable splat.
+#   uv run python scripts/e2e.py configs/e2e/example.yaml
+# Only `capture` and `name` are required; everything else shows its default.
+
+capture: data/MyCapture      # folder of photos (JPEG/PNG/HEIC), or a video file
+name: mycapture              # COLMAP dataset -> data/mycapture, runs -> output/mycapture/<timestamp>
+
+# small: 8-12 GB GPUs (small hash grids, quarter-size images, 1M samples)
+# full:  the paper's settings (half-size images, 15M samples), for HiPerGator-class GPUs
+preset: small
+
+# false: train on every registered image (best result).
+# true:  hold out every 8th image as a test view. Held-out views never affect training; they give
+#        real photos to compare renders against (test-grid PNGs in the run folder, render.py).
+holdout: false
+
+colmap:                      # options of scripts/run_colmap.py
+  fps: 2                     # video only: frames kept per second (sharpest in each window)
+  max_size: 3200             # cap on the long side of the input images
+
+train: {}                    # any train.py option, e.g. {iterations: 30000, train_subset: 30}
+
+snapshots:                   # progress renders for the timelapse, log-spaced over training
+  count: 10
+  views: [0]                 # first test view with holdout, first training view without
+  max_points: 2000000        # Gaussians kept in each snapshot PLY (base colour only, 68 B each)
+
+checkpoint_every: 5000       # for --resume after a timeout; only the latest is kept
+
+export: {}                   # e.g. {max_radius: 1000} to drop the far background tail
+                             # (see utils/ply_crop.py), or {sh_degree: 0} for a smaller file

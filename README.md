@@ -30,50 +30,49 @@ Official implementation for the paper **Eulerian Splatting using Hashed Probabil
 ## Installation
 <hr style="height: 1px; background-color:#bdbdbd; border: none; margin-top: -20px; margin-bottom: 5px;">
 
-This codebase is tested with Python 3.9, PyTorch 2.4.1, and CUDA 12.1, with training on an Nvidia H200 GPU.
+> **This fork (EEL5406 group project) replaces the upstream conda setup with a uv project** so it runs on Blackwell GPUs (B200, RTX PRO 6000): Python 3.10, PyTorch 2.7.1 + CUDA 12.8. Linux x86_64 with an NVIDIA GPU only. The paper used Python 3.9, PyTorch 2.4.1 and CUDA 12.1 on an H200 (see upstream's README).
 
-#### 1. Clone the repository
+#### 1. Clone the repository with its submodules
 ```bash
-git clone https://github.com/euleriansplatting/eulerian-splatting.git --recursive
-```
-#### 2. Make a conda environment
-```bash
-conda create -n eulerian-splatting python=3.9 -y
-conda activate eulerian-splatting
-```
-#### 3. Install dependencies
-```bash
-conda install -c nvidia/label/cuda-12.1.1 -c conda-forge cuda-toolkit cuda-nvcc cuda-runtime gxx_linux-64=11 ninja -y
-export LIBRARY_PATH=$CONDA_PREFIX/lib/stubs:$LIBRARY_PATH
-
-pip install torch==2.4.1+cu121 torchvision==0.19.1+cu121 torchaudio==2.4.1+cu121 --index-url https://download.pytorch.org/whl/cu121
-
-pip install wandb==0.17.5 plyfile torchinfo matplotlib absl-py tqdm slangtorch==1.3.4 setuptools==73.0.1
-```
-#### 3. Install submodules
-```bash
+git clone --recursive https://github.com/Herschenglime/eulerian-splatting.git
 cd eulerian-splatting
-
-# Install slang rasterizer
-pip install ./submodules/slang-gaussian-rasterization
-
-# Install tiny-cuda-nn hash encoding grids
-export TCNN_HALF_PRECISION=0
-pip install ./submodules/tiny-cuda-nn/bindings/torch
 ```
+In an existing clone, run `git submodule update --init --recursive`.
+
+#### 2. A CUDA 12.8 toolkit with `nvcc` on `PATH`
+`uv sync` compiles tiny-cuda-nn, and the Slang rasterizer and sampling kernel are compiled on first use, so `nvcc` has to be on `PATH` for both. pip has no CUDA 12 `nvcc`; see `docs/colmap-setup.md` for why this isn't a uv dependency.
+
+- **HiPerGator:** `module load cuda/12.8.1`
+- **Ubuntu 24.04 workstation:** use NVIDIA's network repository ([12.8.1 install guide, "Network Repo Installation for Ubuntu"](https://docs.nvidia.com/cuda/archive/12.8.1/cuda-installation-guide-linux/index.html#network-repo-installation-for-ubuntu)). Install the versioned `cuda-toolkit-12-8`, not the guide's unversioned `cuda-toolkit`, which installs the newest CUDA. The toolkit package doesn't touch an installed NVIDIA driver. Ubuntu's own `nvidia-cuda-toolkit` package is 12.0, which is too old.
+  ```bash
+  wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+  sudo dpkg -i cuda-keyring_1.1-1_all.deb
+  sudo apt-get update
+  sudo apt-get install cuda-toolkit-12-8
+  ```
+  Then add `export PATH=/usr/local/cuda-12.8/bin${PATH:+:${PATH}}` to your shell profile ([post-install environment setup](https://docs.nvidia.com/cuda/archive/12.8.1/cuda-installation-guide-linux/index.html#environment-setup)).
+
+Check that `nvcc --version` reports release 12.8.
+
+#### 3. Install everything with uv
+```bash
+uv sync
+```
+This installs PyTorch, builds tiny-cuda-nn for RTX 30xx/40xx, L4, B200 and RTX PRO 6000 (a few minutes the first time, then cached), and installs the Slang rasterizer and COLMAP (pycolmap). Run scripts through uv: `uv run python train.py ...`. If you add a GPU type, add its compute capability to `TCNN_CUDA_ARCHITECTURES` in `pyproject.toml`.
+
+#### 4. Check the GPU paths
+```bash
+uv run pytest                                    # CPU tests
+scripts/gpu_smoke_test.sh /path/to/tandt/truck   # ~15 min, sized for a 12 GB card
+```
+#### 5. Your own capture
+Write a small config (see `configs/e2e/example.yaml`; only `capture` and `name` are required), then run:
+```bash
+uv run python scripts/e2e.py configs/e2e/<name>.yaml            # --preset full on HiPerGator-class GPUs
+```
+It runs COLMAP, trains with progress snapshots, builds a timelapse, and writes an upright, standard-format splat to `output/<name>/<run>/<name>.ply`. `--resume output/<name>/<run>` continues after a timeout. Details: `docs/e2e-pipeline.md`.
 
 <hr style="height:3px; background-color:#bdbdbd; border:none;">
-
-#### Common Issues:
-
-1. Detected cuda version mismatches version used to compile
-
-```bash
-conda install -c nvidia cuda-toolkit=12.1
-export CUDA_HOME=$CONDA_PREFIX
-export PATH=$CONDA_PREFIX/bin:$PATH
-export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
-```
 
 ## Training & Evaluation
 <hr style="height: 1px; background-color:#bdbdbd; border: none; margin-top: -20px; margin-bottom: 5px;">
