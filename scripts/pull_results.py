@@ -21,7 +21,12 @@ Options:
     --checkpoint  also pull checkpoints/ (~12 GB, only useful to continue training)
     --dry_run     list what would be transferred, with sizes; copy nothing
     --no_zip      stop after copying and writing README.md
-    --local       treat the source as a local repo path (no ssh), e.g. when run on HiPerGator
+    --local       treat the source as a local repo path (no ssh). On HiPerGator this builds the
+                  zip there, so only one file needs downloading. The staging folder is hard links
+                  (no extra space); the zip itself is a full copy, so delete it once downloaded:
+                    python3 scripts/pull_results.py --local . output/<name>/<run>
+                    # then, on your machine (resumable):
+                    rsync -P <user>@hpg.rc.ufl.edu:/blue/mdjahiduislam/<user>/eulerian-splatting/results/<name>_<run>.zip .
 """
 
 import argparse
@@ -57,8 +62,10 @@ def filter_rules(name, run, args):
     return rules
 
 
-def rsync(src, dest, rules, dry_run):
+def rsync(src, dest, rules, dry_run, link_dest=None):
     cmd = ["rsync", "-a", "--prune-empty-dirs", "--human-readable"]
+    if link_dest:  # local source on the same filesystem: hard links, no second copy of the data
+        cmd.append(f"--link-dest={link_dest}")
     cmd += ["--dry-run", "--stats", "--out-format=%l %n"] if dry_run else ["--info=progress2,stats1"]
     for rule in rules:
         cmd += ["--filter", rule]
@@ -205,7 +212,8 @@ def main(argv=None):
     bundle = os.path.join(os.path.abspath(args.dest), f"{name}_{run}")
     os.makedirs(bundle, exist_ok=True)
 
-    rsync(src, bundle + "/", filter_rules(name, run, args), args.dry_run)
+    rsync(src, bundle + "/", filter_rules(name, run, args), args.dry_run,
+          link_dest=src if args.local else None)
     if args.dry_run:
         return
     if not os.path.isdir(os.path.join(bundle, "output", name, run)):
