@@ -227,6 +227,9 @@ def main(argv=None):
     print(f"wrote {os.path.join(bundle, 'README.md')}")
     if not args.no_zip:
         make_zip(bundle)
+    if not args.local:  # on your own machine: shortcuts to the splat, GIFs, etc. at the top of --dest
+        from link_results import link_results
+        link_results(args.dest)
 
 
 if __name__ == "__main__":

@@ -76,6 +76,7 @@ python scripts/make_timelapse.py output/<scene>/<run>             # -> snapshots
 python scripts/export_ply.py <run>/point_cloud/iteration_N.ply out.ply [--min_opacity 0.005] [--sh_degree 0] [--max_radius 1000]
 python scripts/crop_ply.py in.ply out.ply --max_radius 1000      # any PLY, raw or exported
 python scripts/orbit_vkgs.py output/<name>/<run> [--seconds_per_turn 12] [--distance 1.3] [--elevation 20]   # turntable MP4/GIF of the export via NVIDIA vkgs (install notes in the script)
+python3 scripts/link_results.py [results_dir]                   # shortcuts at the top of results/: <name>.ply, _orbit.mp4/.gif, _timelapse.gif, _test_views.png, _run/ (auto after pull_results/orbit_vkgs)
 ```
 
 **Own captures, one command:** `uv run python scripts/e2e.py configs/e2e/<name>.yaml [--preset small|full] [--holdout] [-- <train.py flags>]` runs COLMAP (reused if `data/<name>` exists), training with snapshots and checkpoints, the timelapse and the upright export to `output/<name>/<run>/<name>.ply`. `--resume output/<name>/<run>` continues from the latest checkpoint. Training uses every image unless `holdout` is set; held-out views never affect training. Config keys, presets and disk use: `docs/e2e-pipeline.md`.

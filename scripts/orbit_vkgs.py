@@ -7,7 +7,8 @@ Spin speed is --seconds_per_turn (default 12 s, i.e. 30 degrees/s); the frame co
 it and --fps (12 s x 30 fps = 360 frames, about 1.5 min to render a 15M-Gaussian splat on 8 GB).
 
 <run_dir> is an e2e run folder: it needs cameras.json, cfg_args and the exported <name>.ply.
-Writes <run_dir>/orbit/: cameras_orbit.json, orbit.cfg, frames/, orbit.mp4, orbit.gif.
+Writes <run_dir>/orbit/: cameras_orbit.json, orbit.cfg, frames/, <name>_orbit.mp4, <name>_orbit.gif
+(named after the run, so files from different runs stay distinct once copied or uploaded).
 
 How the orbit is placed:
 - The exported PLY lives in the training frame (cameras PCA-aligned, recentred and scaled; see
@@ -162,10 +163,8 @@ def main():
     args = p.parse_args()
 
     run_dir = os.path.abspath(args.run_dir)
-    ply = args.ply
-    if ply is None:
-        name = os.path.basename(os.path.dirname(run_dir))
-        ply = os.path.join(run_dir, f"{name}.ply")
+    name = os.path.basename(os.path.dirname(run_dir))  # output/<name>/<run>
+    ply = args.ply or os.path.join(run_dir, f"{name}.ply")
     ply = os.path.abspath(ply)
     if not os.path.exists(ply):
         sys.exit(f"splat not found: {ply} (pass --ply)")
@@ -231,8 +230,8 @@ def main():
     if args.training_views:
         return
     src = os.path.join(frames_dir, "%04d.png")
-    mp4 = os.path.join(out_dir, "orbit.mp4")
-    gif = os.path.join(out_dir, "orbit.gif")
+    mp4 = os.path.join(out_dir, f"{name}_orbit.mp4")
+    gif = os.path.join(out_dir, f"{name}_orbit.gif")
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(args.fps), "-i", src,
                     "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", mp4], check=True)
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(args.fps), "-i", src, "-vf",
@@ -240,6 +239,13 @@ def main():
                     "[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4",
                     "-loop", "0", gif], check=True)
     print(f"wrote {mp4}\n      {gif}")
+
+    # A run inside a results package (results/<name>_<run>/output/<name>/<run>): refresh the
+    # shortcuts at the top of results/ so <name>_orbit.mp4/.gif appear there.
+    parts = run_dir.split(os.sep)
+    if len(parts) >= 5 and parts[-3] == "output" and parts[-4] == f"{parts[-2]}_{parts[-1]}":
+        from link_results import link_results
+        link_results(os.sep.join(parts[:-4]))
 
 
 if __name__ == "__main__":
