@@ -19,7 +19,9 @@ Agreed scope, in priority order:
 
 `docs/` records what we changed in the codebase and why (`docs/viz-tools-changes.md` covers the environment update and visualization tools; `docs/colmap-setup.md` covers COLMAP preprocessing, making `uv sync` build the whole environment, and a review of the HiPerGator work on `main`; `docs/e2e-pipeline.md` covers the one-command pipeline and the resume fixes).
 
-**HiPerGator workflow:** `example.ipynb` is a teammate's B200 notebook. It has a hard-coded `/blue/egn5216/Photo_Gauss_Test` repo path and trains through `train_model(progress_callback=TrainingDashboard(...))` (`utils/notebook_progress.py`: live ETA, per-stage timings, GPU memory and host RAM against the SLURM limit). It was written against a separate env on `/blue`; the uv env now includes `ipykernel`, so a kernel can be registered from `.venv` instead (untested on HiPerGator). `docs/colmap-setup.md` §5 has the review of that work and how it was merged.
+**HiPerGator SLURM jobs:** `slurm/colmap.sbatch` (L4), `slurm/e2e_b200.sbatch` (B200, one `e2e.py` run or `--resume`), `slurm/status.sh` (progress, ETA, peak RAM, lab QOS usage; reads logs instead of polling the scheduler, which UFRC policy forbids). The lab QOS (`mdjahiduislam`) is 16 CPU / 125 GB shared by the whole lab and has no GPU burst, so jobs ask for 1 CPU and ~19 GB (full preset measured: ~10 GB training, +4 GB saving a 15M-Gaussian PLY). Override per job on the `sbatch` command line. Environment: `module load conda cuda/12.8.1`, `unset UV_PYTHON` (the conda module points uv at Python 3.14), `UV_NO_SYNC=1` in jobs; building tiny-cuda-nn on a GPU-less dev node needs `LIBRARY_PATH=$CUDA_HOME/lib64/stubs`. COLMAP for our own captures is cheaper on a desktop: `docs/colmap-desktop.md`.
+
+**HiPerGator notebook:** `example.ipynb` is a teammate's B200 notebook. It has a hard-coded `/blue/egn5216/Photo_Gauss_Test` repo path and trains through `train_model(progress_callback=TrainingDashboard(...))` (`utils/notebook_progress.py`: live ETA, per-stage timings, GPU memory and host RAM against the SLURM limit). It was written against a separate env on `/blue`; the uv env now includes `ipykernel`, so a kernel can be registered from `.venv` instead (untested on HiPerGator). `docs/colmap-setup.md` §5 has the review of that work and how it was merged.
 
 Course materials are outside this repo, in `/home/pgrau/Sync/School/EEL5406 Comp Phot/Final Project/`:
 - `2605.29136v1(1).pdf`: the paper with its appendix. Read it with the PDF tooling.
@@ -169,7 +171,7 @@ After `iterations`, `convert2refinement` turns one final sample into explicit pe
 
 Each run is written to `<save_path or repo>/output/<basename(source_path)>/<run_num>_<id>/` (`output/` is gitignored). It contains:
 - `cfg_args`, `cameras.json`, `input.ply`
-- `point_cloud/iteration_N.ply`: one frozen sample with its attributes
+- `point_cloud/iteration_N.ply`: one frozen sample with its attributes. `save_ply` builds the structured array as a view of one float32 array (upstream's `list(map(tuple, ...))` needed ~30 GB of host RAM for 15M Gaussians and got a 32 GB job OOM-killed; `tests/test_save_ply.py` checks the bytes match upstream's).
 - `learned_grids/iteration_N.pt`: the pyramid and hash grids (probabilistic phase only)
 - `checkpoints/` and the test-grid PNGs
 - `renders/{train,test}/ours_N/{renders,gt}/`

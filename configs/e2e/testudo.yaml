@@ -1,4 +1,4 @@
-# Testudo plush, 170 Pixel photos (auto exposure: shutter 1/61-1/1167 s, ISO 32-1001; 7 flagged blurry).
+# Testudo bronze statue (UMD, outdoors), 170 Pixel photos (auto exposure: shutter 1/61-1/1167 s, ISO 32-1001; 7 flagged blurry).
 # COLMAP already ran (slurm/colmap.sbatch): 170/170 registered, 1.40 px, data/testudo.
 capture: data/raw/testudo
 name: testudo

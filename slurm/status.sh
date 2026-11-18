@@ -20,7 +20,7 @@ job_progress() {  # $1 = log file
   bar=$(tr '\r' '\n' < "$log" | grep -aE 'Training progress: +[0-9]+%' | tail -1)
   if [ -n "$bar" ]; then
     # "Training progress:  12%|#  | 7800/65000 [10:00<1:13:00, 13.0it/s, Loss=...]"
-    echo "    training: $(echo "$bar" | sed -E 's/.*\| *([0-9]+\/[0-9]+) \[([^<]*)<([^,]*), *([^,\]]*).*/\1 iterations, elapsed \2, ETA \3, \4/')"
+    echo "    training: $(echo "$bar" | sed -E 's/.*\| *([0-9]+\/[0-9]+) \[([^<]*)<([^,]*), *([^],]*).*/\1 iterations, elapsed \2, ETA \3, \4/')"
   fi
   local reg total
   reg=$(grep -aoE 'num_reg_frames=[0-9]+' "$log" | tail -1 | cut -d= -f2)

@@ -1,0 +1,11 @@
+# Office room, phone video (1x lens; ISO, shutter, white balance and focus locked).
+# An inside-out capture: content outside the camera hull gets
+# coarse resolution under the contraction, which is what this scene tests.
+# COLMAP runs on a desktop (docs/colmap-desktop.md); e2e.py reuses data/office if it exists.
+capture: data/office_vid.mp4
+name: office
+preset: full
+holdout: true        # every 8th frame held out: render vs. real photo from unseen viewpoints
+colmap:
+  fps: 2
+  matcher: exhaustive   # no loop-closure problems; sequential split the NemeSys video

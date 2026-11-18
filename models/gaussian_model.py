@@ -465,24 +465,22 @@ class GaussianModel:
     def save_ply(self, path):
         mkdir_p(os.path.dirname(path))
         
-        xyz = self.get_xyz.detach().cpu().numpy()[..., :3]
-        normals = np.zeros_like(xyz)
+        xyz = self.get_xyz.detach()[..., :3]
 
         color, opacities, scaling, rotation = self.get_attributes
-        f_dc = color[:, 0:1, :].transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
-        f_rest = color[:, 1:, :].transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        f_dc = color[:, 0:1, :].transpose(1, 2).flatten(start_dim=1)
+        f_rest = color[:, 1:, :].transpose(1, 2).flatten(start_dim=1)
 
         dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
 
-        elements = np.empty(xyz.shape[0], dtype=dtype_full)
-        attributes = np.concatenate((xyz,
-                                     normals,
-                                     f_dc,
-                                     f_rest,
-                                     opacities.cpu().numpy(),
-                                     scaling.cpu().numpy(),
-                                     rotation.cpu().numpy()), axis=1)
-        elements[:] = list(map(tuple, attributes))
+        # Concatenate on the device and copy to the host once: one (N, 62) float32 array
+        # (3.7 GB for 15M Gaussians) instead of per-attribute copies plus a concatenated copy.
+        cols = (xyz, torch.zeros_like(xyz), f_dc, f_rest, opacities, scaling, rotation)
+        attributes = torch.cat([c.detach().float() for c in cols], dim=1).contiguous().cpu().numpy()
+        # Reinterpret the rows as N structured records (same bytes, no copy). Upstream's
+        # `elements[:] = list(map(tuple, attributes))` built N*62 Python floats: ~30 GB of
+        # host RAM for 15M Gaussians, which got a 32 GB SLURM job OOM-killed.
+        elements = attributes.view(dtype_full).reshape(-1)
         el = PlyElement.describe(elements, 'vertex')
         PlyData([el]).write(path)
 
