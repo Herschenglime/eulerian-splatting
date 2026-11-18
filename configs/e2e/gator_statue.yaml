@@ -1,0 +1,8 @@
+# Gator statue: 49 iPhone 15 photos (1x lens). Exposure was not locked (ISO 64-125, 1/120 s and 1/60 s).
+# COLMAP ran on a teammate's machine with scripts/run_colmap.py (exhaustive, OPENCV -> PINHOLE):
+# 47/49 registered, 1.13 px, undistorted 2383x3180 (portrait). Unzipped into data/gator_statue.
+# capture points at the prepared JPEGs inside the dataset; e2e.py reuses data/gator_statue/sparse/0.
+capture: data/gator_statue/input
+name: gator_statue
+preset: full         # images_2 = 1192x1590; use --preset small on an 8-12 GB GPU
+holdout: true        # every 8th photo held out (6 of 47): render vs. real photo from unseen viewpoints
