@@ -28,6 +28,15 @@ cd /blue/mdjahiduislam/pgrau/eulerian-splatting
 stage() { echo; echo "#### stage: $* ($(date '+%H:%M:%S'))"; }
 
 stage "start: job $SLURM_JOB_ID on $(hostname): e2e.py $*"
+# Refuse to run COLMAP here: it would hold a B200 mostly idle (UFRC kills idle-GPU jobs) while
+# the CPU-only mapper runs on 1-2 cores. Run it first (slurm/colmap.sbatch or docs/colmap-desktop.md).
+if [[ "${1:-}" == *.yaml ]]; then
+  NAME=$(awk '/^name:/ {print $2; exit}' "$1")
+  if [ ! -d "data/$NAME/sparse/0" ]; then
+    echo "ERROR: data/$NAME/sparse/0 not found. Run COLMAP for '$NAME' before training on a B200."
+    exit 1
+  fi
+fi
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
 # GPU memory and utilisation every 60 s into a side file.
 nvidia-smi --query-gpu=timestamp,memory.used,utilization.gpu --format=csv,noheader -l 60 \

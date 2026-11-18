@@ -6,6 +6,11 @@ capture: data/office_vid.mp4
 name: office
 preset: full
 holdout: true        # every 8th frame held out: render vs. real photo from unseen viewpoints
+# 1080p video frames (1873x1049 after undistortion): train at full size. The full preset's
+# images_2 would halve them to 936x524. Same pixel count per image as Testudo's images_2.
+train:
+  images: images
+  resolution: 1
 colmap:
   fps: 2
   matcher: exhaustive   # no loop-closure problems; sequential split the NemeSys video
