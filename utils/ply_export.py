@@ -42,9 +42,11 @@ def check_activated(arr):
     opacity = arr["opacity"]
     if opacity.size and (opacity.min() < 0.0 or opacity.max() > 1.0):
         raise ValueError("opacity outside [0, 1]: file is probably already in standard (logit) format")
+    # Activated scales are >= 0. Exactly 0 is float32 underflow of the softplus (2 of 15M Gaussians in
+    # the gator_statue run), which the conversion clamps to SCALE_EPS; only negatives mean log format.
     for name in _names(arr, "scale_"):
-        if arr[name].size and arr[name].min() <= 0.0:
-            raise ValueError(f"{name} has values <= 0: file is probably already in standard (log) format")
+        if arr[name].size and arr[name].min() < 0.0:
+            raise ValueError(f"{name} has values < 0: file is probably already in standard (log) format")
 
 
 def _truncate_sh(arr, sh_degree):

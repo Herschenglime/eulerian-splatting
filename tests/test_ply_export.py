@@ -53,6 +53,17 @@ def test_rejects_already_converted_file():
     convert_vertices(out, force=True)  # escape hatch still works
 
 
+def test_underflowed_zero_scale_is_accepted():
+    # softplus underflows to exactly 0 in float32 for a few Gaussians in a full-size run.
+    arr = _random_gaussians(n=4)
+    arr["scale_0"][1] = 0.0
+    arr["scale_1"][2] = 1e-43  # denormal
+    out = convert_vertices(arr)
+    for i in range(3):
+        assert np.all(np.isfinite(out[f"scale_{i}"]))
+    assert out["scale_0"][1] == np.float32(np.log(1e-12))
+
+
 def test_extreme_opacities_stay_finite():
     arr = _random_gaussians(n=4)
     arr["opacity"] = [0.0, 1.0, 1e-9, 0.5]
