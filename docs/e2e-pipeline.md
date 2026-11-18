@@ -105,6 +105,6 @@ The export keeps everything by default. To drop the far background tail:
 ## Future work
 
 - **A GUI for reviewing and selecting images and video frames** before or after COLMAP. It would build on `blurry_images`, `static_frames` and per-image registration. As far as we know, COLMAP's own GUI inspects reconstructions (registered images, matches) but doesn't help select frames; that hasn't been checked.
-- **Fly-through rendering.**
+- **Fly-through rendering.** A turntable orbit exists (`scripts/orbit_vkgs.py`, rendered with NVIDIA's vk_gaussian_splatting viewer); a path through the scene doesn't yet.
 - **Choosing a desktop viewer for large splats** (e.g. SIBR, the original 3DGS viewer, which expects a different folder layout).
 - **A SLURM wrapper around `e2e.py`** for HiPerGator.
