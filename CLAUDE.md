@@ -116,8 +116,8 @@ python scripts/crop_ply.py in.ply out.ply --max_radius 1000      # any PLY, raw 
 ## COLMAP preprocessing (`scripts/run_colmap.py`)
 
 ```bash
-uv run python scripts/run_colmap.py data/NemeSys data/nemesys                  # folder of photos (HEIC OK)
-uv run python scripts/run_colmap.py "data/nemesys vid.mp4" data/nemesys_vid --fps 2   # video
+uv run python scripts/run_colmap.py data/NemeSys data/nemesys_photos                  # folder of photos (HEIC OK)
+uv run python scripts/run_colmap.py data/nemesys_vid.mp4 data/nemesys_vid --fps 2   # video
 ```
 
 Writes `<out>/images/` (undistorted) and `<out>/sparse/0/` (PINHOLE), plus `images_2/`/`images_4/`, `input/` (the prepared JPEGs), `distorted/` (database and raw model) and `colmap_summary.json` (registered count, unregistered names, reprojection error). Then add `configs/scenes/<name>.yaml` (see `nemesys.yaml`) and train with `--source_path=<out>`. Details and measured results are in `docs/colmap-setup.md`.

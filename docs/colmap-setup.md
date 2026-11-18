@@ -11,8 +11,8 @@ Training needs camera poses, and our own captures come from an iPhone as HEIC ph
 **Files:** `scripts/run_colmap.py`, `configs/scenes/nemesys.yaml`
 
 ```bash
-uv run python scripts/run_colmap.py data/NemeSys data/nemesys                 # folder of photos
-uv run python scripts/run_colmap.py "data/nemesys vid.mp4" data/nemesys_vid --fps 2   # video
+uv run python scripts/run_colmap.py data/NemeSys data/nemesys_photos                 # folder of photos
+uv run python scripts/run_colmap.py data/nemesys_vid.mp4 data/nemesys_vid --fps 2   # video
 ```
 
 - **Input preparation** (`<out>/input/`):
@@ -82,7 +82,7 @@ The training settings that fit in 8 GB (`--num_samples=2000000` ran out of memor
 
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True uv run python train.py \
-  --config=nemesys --source_path=data/nemesys --torch_cuda_arch_list=8.6 --dry_run --disable_visualize \
+  --config=nemesys --source_path=data/nemesys_photos --torch_cuda_arch_list=8.6 --dry_run --disable_visualize \
   --attrib_config=configs/attribute_grids_small.yaml --images=images_4 --resolution=1 \
   --iterations=600 --refinement_iterations=100 --num_samples=1000000 --num_samples_min=300000 \
   --save_iterations 600 700 --test_iterations 600 --snapshot_iterations 1 300 600 --snapshot_views 0

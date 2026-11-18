@@ -1,8 +1,8 @@
 """Turn a capture (a folder of photos or a video) into a COLMAP dataset that Scene can load.
 
 Usage:
-    python scripts/run_colmap.py data/NemeSys data/nemesys
-    python scripts/run_colmap.py "data/nemesys vid.mp4" data/nemesys_vid --fps 3
+    python scripts/run_colmap.py data/NemeSys data/nemesys_photos
+    python scripts/run_colmap.py data/nemesys_vid.mp4 data/nemesys_vid --fps 3
 
 Output layout (the same as 3DGS's convert.py):
     <out>/input/        the capture as JPEGs: HEIC converted, EXIF rotation applied, long side capped

@@ -1,7 +1,7 @@
 # One command from a capture to a viewable splat (`scripts/e2e.py`)
 
 ```bash
-uv run python scripts/e2e.py configs/e2e/nemesys.yaml
+uv run python scripts/e2e.py configs/e2e/nemesys_photos.yaml
 ```
 
 It runs four steps:
@@ -14,7 +14,7 @@ Rendering held-out views and computing metrics aren't part of it. `render.py` an
 
 ## Config
 
-A YAML file per capture. Only `capture` and `name` are required. `configs/e2e/example.yaml` lists every key with its default and a comment, and `configs/e2e/nemesys.yaml` is a real one.
+A YAML file per capture. Only `capture` and `name` are required. `configs/e2e/example.yaml` lists every key with its default and a comment, and `configs/e2e/nemesys_photos.yaml` and `nemesys_vid.yaml` (the same object from photos and from a video) are real ones.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -39,7 +39,7 @@ A YAML file per capture. Only `capture` and `name` are required. `configs/e2e/ex
 The resolved settings are saved as `<run>/e2e_config.yaml`.
 
 ```bash
-uv run python scripts/e2e.py configs/e2e/nemesys.yaml --holdout -- --train_subset 30
+uv run python scripts/e2e.py configs/e2e/nemesys_photos.yaml -- --train_subset 30
 ```
 
 ## Presets

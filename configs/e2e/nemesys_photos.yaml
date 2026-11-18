@@ -1,0 +1,6 @@
+# NemeSys ROV on a lab bench: 64 iPhone 15 photos. Exposure was not locked (1/60 s and 1/40 s).
+# COLMAP already ran: 60/64 registered, 1.29 px, data/nemesys_photos (undistorted 2377x3173).
+capture: data/NemeSys
+name: nemesys_photos
+preset: full         # images_2 = 1188x1586; use --preset small on an 8-12 GB GPU
+holdout: true        # every 8th photo held out: render vs. real photo from unseen viewpoints

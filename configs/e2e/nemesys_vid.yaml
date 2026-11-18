@@ -1,0 +1,14 @@
+# NemeSys ROV on a lab bench, phone video (48 s, 1080p60). The same object as nemesys_photos.
+# COLMAP already ran: 96 frames kept at 2 fps, 96/96 registered, 1.12 px, data/nemesys_vid.
+capture: data/nemesys_vid.mp4
+name: nemesys_vid
+preset: full
+holdout: true        # every 8th frame held out: render vs. real frame from unseen viewpoints
+# 1080p video frames (1034x1859 after undistortion): train at full size. The full preset's
+# images_2 would halve them to 517x929.
+train:
+  images: images
+  resolution: 1
+colmap:
+  fps: 2
+  matcher: exhaustive   # sequential matching split this video into 4 models
