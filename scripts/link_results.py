@@ -13,6 +13,13 @@ This makes relative symlinks next to the packages, for the latest run of each <n
     <name>_run/             the run folder itself, for everything else
 Older runs with the same name get the same links with their run id: <name>_<run>.ply, etc.
 
+The files the links point to carry the same names: a link dragged into an upload or a web page may
+be resolved to the real file, and every run's timelapse is snapshots/timelapse_view0.gif. So a file
+whose own name differs gets a hard link (a second name for the same file, no extra space) next to
+it, e.g. snapshots/<name>_timelapse.gif, and the symlink points there. The original names stay,
+because the package README and e2e.py --resume expect them. Build zips before running this (as
+pull_results.py does), or a zip stores those files twice.
+
 It runs by itself at the end of scripts/pull_results.py and scripts/orbit_vkgs.py. After copying
 packages in some other way (Globus, unzipping by hand), run it once. Re-running is safe: it only
 removes or replaces symlinks that point into a package's output/ folder, never real files.
@@ -70,6 +77,38 @@ def targets(name, run_dir):
     return {suffix: path for suffix, path in found.items() if path and os.path.exists(path)}
 
 
+def run_named(target, want, ours):
+    """A name for target that carries the run's name (e.g. snapshots/<name>_timelapse.gif next to
+    snapshots/timelapse_view0.gif), as a hard link: the same file under a second name, no extra space.
+    A link dragged into an upload or a web page may be resolved to the real file's name, so the
+    real name must tell the runs apart too. Hard links we made earlier under another of `ours`
+    (a run that has since become an older one) are removed. Returns the path to link to."""
+    folder = os.path.dirname(target)
+    want_path = os.path.join(folder, want)
+    inode = os.stat(target).st_ino
+    for name in set(ours) - {want, os.path.basename(target)}:
+        stale = os.path.join(folder, name)
+        if os.path.isfile(stale) and not os.path.islink(stale) and os.stat(stale).st_ino == inode:
+            os.remove(stale)
+    if os.path.basename(target) == want:
+        return target
+    if os.path.lexists(want_path):
+        st = os.lstat(want_path)
+        if st.st_ino == inode:
+            return want_path
+        if os.path.isfile(want_path) and not os.path.islink(want_path) and st.st_nlink > 1:
+            os.remove(want_path)  # our hard link to an older file (e.g. an earlier test grid)
+        else:
+            print(f"kept {target}'s own name: {want_path} exists and isn't ours", file=sys.stderr)
+            return target
+    try:
+        os.link(target, want_path)
+    except OSError as e:  # filesystem without hard links
+        print(f"kept {target}'s own name: can't hard-link ({e})", file=sys.stderr)
+        return target
+    return want_path
+
+
 def is_ours(link, results_dir):
     """A symlink made by this script: it points into some package's output/ folder."""
     if not os.path.islink(link):
@@ -98,6 +137,8 @@ def link_results(results_dir=None, quiet=False):
         for i, (run, run_dir) in enumerate(runs):
             prefix = name if i == len(runs) - 1 else f"{name}_{run}"
             for suffix, target in targets(name, run_dir).items():
+                if os.path.isfile(target):
+                    target = run_named(target, prefix + suffix, (name + suffix, f"{name}_{run}{suffix}"))
                 link = os.path.join(results_dir, prefix + suffix)
                 if os.path.lexists(link):  # a real file or folder of the same name: leave it alone
                     print(f"skipped {link}: something else already has that name", file=sys.stderr)
