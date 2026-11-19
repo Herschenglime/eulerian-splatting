@@ -42,10 +42,10 @@ TAKEAWAYS = [
     ("More overlapping views win.", "The two videos lead; the two smallest photo sets trail and overfit "
      "(their training views score 9–12 dB higher)."),
     ("The error is in the background.", "Every object reconstructs well; backgrounds seen from few views "
-     "smear into streaks. The NemeSys photos are wide shots full of lab; the video frames are close-ups."),
-    ("PSNR is not perceived quality.", "The in-focus NemeSys photos are sharper and higher-contrast than the "
-     "video frames and arguably look better, yet score 5 dB lower: PSNR punishes fine detail that is "
-     "slightly off more than it punishes blur."),
+     "come out as noisy streaks."),
+    ("PSNR is not perceived quality.", "The robot arguably looks better in the sharp, high-contrast NemeSys "
+     "photos, yet they score 5 dB lower: PSNR averages the whole frame, and the wide photos are mostly "
+     "noisy, poorly reconstructed background."),
     ("Testudo: inconsistent photos.", "Auto exposure swung from 1/61 to 1/1167 s and "
      "people walked through, so even training views only reach 24 dB."),
     ("Refinement sharpens but overfits.", "60K → 65K lowers LPIPS in every scene, yet costs held-out "
