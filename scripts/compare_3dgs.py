@@ -35,21 +35,34 @@ def main(ours_model, ours_it, gs_model, gs_it, out):
     mid = len(by) // 2
     picks = list(dict.fromkeys([by[0], by[-1], by[mid], by[mid - 1]]))[:4]
 
-    fig, axes = plt.subplots(len(picks), 3, figsize=(9, 3.9 * len(picks)), facecolor="white")
-    for row, n in zip(axes, picks):
+    # 16:9 slide (13.33 x 7.5 in, so font sizes are slide points): two rows of two triplets.
+    W, H = 1920, 1080  # layout units
+    fig = plt.figure(figsize=(40 / 3, 7.5), dpi=W / (40 / 3), facecolor="white")
+
+    def text(x, y, s, size, **kw):
+        fig.text(x / W, 1 - y / H, s, fontsize=size, color=kw.pop("color", "#1d1d1f"), **kw)
+
+    text(60, 84, "Testudo: 3DGS vs. Eulerian Splatting on held-out photos", 25, weight="bold")
+    text(60, 124, f"Mean over all {len(names)} held-out photos:  3DGS {gs['PSNR']:.2f} dB, SSIM {gs['SSIM']:.2f}, "
+         f"LPIPS {gs['LPIPS']:.2f}   ·   Eulerian {ours['PSNR']:.2f} dB, SSIM {ours['SSIM']:.2f}, "
+         f"LPIPS {ours['LPIPS']:.2f}", 12.5, color="#6e6e73")
+    w0, h0 = Image.open(os.path.join(ours_dir, "gt", picks[0])).size
+    inner, between, left = 10, 50, 60
+    tw = (W - 2 * left - 4 * inner - between) / 6
+    th = tw * h0 / w0
+    for k, n in enumerate(picks[:4]):
+        row, col = divmod(k, 2)
+        top = 190 + row * (th + 70)
         tiles = [(os.path.join(ours_dir, "gt", n), "Held-out photo"),
                  (os.path.join(gs_dir, "renders", n), f"3DGS  {gs_pv['PSNR'][n]:.1f} dB"),
                  (os.path.join(ours_dir, "renders", n), f"Eulerian  {ours_pv['PSNR'][n]:.1f} dB")]
-        for ax, (path, label) in zip(row, tiles):
-            ax.imshow(Image.open(path))
-            ax.set_title(label, fontsize=12)
+        for j, (path, label) in enumerate(tiles):
+            x = left + col * (3 * tw + 2 * inner + between) + j * (tw + inner)
+            ax = fig.add_axes([x / W, 1 - (top + th) / H, tw / W, th / H])
+            ax.imshow(Image.open(path), interpolation="lanczos")
             ax.set_axis_off()
-    fig.suptitle(f"Testudo, held-out views (mean over all {len(names)}):\n"
-                 f"3DGS {gs['PSNR']:.2f} dB / SSIM {gs['SSIM']:.3f} / LPIPS {gs['LPIPS']:.3f}    "
-                 f"Eulerian {ours['PSNR']:.2f} dB / SSIM {ours['SSIM']:.3f} / LPIPS {ours['LPIPS']:.3f}",
-                 fontsize=13)
-    fig.tight_layout(rect=(0, 0, 1, 1 - 0.5 / (3.9 * len(picks))))
-    fig.savefig(out, dpi=150)
+            text(x + tw / 2, top - 10, label, 12, ha="center", weight="bold" if j else "normal")
+    fig.savefig(out, dpi=3840 / (40 / 3), facecolor="white")
     print("views:", {n: round(diff[n], 2) for n in picks}, "->", out)
 
 
