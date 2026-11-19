@@ -59,7 +59,7 @@ def main(ours_model, ours_it, gs_model, exp_model, gs_it, out):
     def text(x, y, s, size, **kw):
         fig.text(x / W, 1 - y / H, s, fontsize=size, color=kw.pop("color", "#1d1d1f"), **kw)
 
-    text(60, 84, "Testudo: exposure compensation widens 3DGS's lead", 25, weight="bold")
+    text(60, 84, "Exposure correction", 25, weight="bold")
     text(60, 124, f"Right half of each held-out photo, PSNR over all {len(names)}:  3DGS {mean['3DGS']:.2f} dB   ·   "
          f"3DGS + exposure {mean['3DGS + exposure']:.2f} dB   ·   Eulerian {mean['Eulerian']:.2f} dB", 12.5,
          color="#6e6e73")
