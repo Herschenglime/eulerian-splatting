@@ -32,7 +32,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Display order (both slides): the two NemeSys captures side by side, then the rest.
 # name: (subject, capture kind, capture description for the table, default view in the test grid)
 SCENES = {
-    "nemesys_vid": ("NemeSys robot", "video", "Video", 5),
+    "nemesys_vid": ("NemeSys robot", "video", "Video", 4),
     "nemesys_photos": ("NemeSys robot", "photos", "Photos", 4),
     "office": ("Office", "video", "Video, inside-out", 1),
     "testudo": ("Testudo statue", "photos", "Photos, outdoor", 2),
