@@ -1,14 +1,16 @@
 """Render a turntable orbit of an exported splat with NVIDIA's vk_gaussian_splatting viewer (vkgs),
-then assemble an MP4 and a GIF with ffmpeg.
+then assemble an MP4 and a GIF with ffmpeg. For rooms (inside-out captures), see room_views_vkgs.py.
 
     python scripts/orbit_vkgs.py <run_dir> [--seconds_per_turn 12] [--size 1080 1080] [--elevation 20]
 
 Spin speed is --seconds_per_turn (default 12 s, i.e. 30 degrees/s); the frame count follows from
-it and --fps (12 s x 30 fps = 360 frames, about 1.5 min to render a 15M-Gaussian splat on 8 GB).
+it and --fps (12 s x 30 fps = 360 frames, about 3 min to render a 15M-Gaussian splat on 8 GB).
 
 <run_dir> is an e2e run folder: it needs cameras.json, cfg_args and the exported <name>.ply.
 Writes <run_dir>/orbit/: cameras_orbit.json, orbit.cfg, frames/, <name>_orbit.mp4, <name>_orbit.gif
 (named after the run, so files from different runs stay distinct once copied or uploaded).
+The functions here (load_cameras, render_poses, make_videos, refresh_links) are shared with
+room_views_vkgs.py.
 
 How the orbit is placed:
 - The exported PLY lives in the training frame (cameras PCA-aligned, recentred and scaled; see
@@ -138,6 +140,67 @@ def inria_json(c2w, names, size, focal):
             for i, (m, n) in enumerate(zip(c2w, names))]
 
 
+def find_vkgs(vkgs=None):
+    vkgs = vkgs or os.environ.get("VKGS") or shutil.which("vkgs") or shutil.which("vk_gaussian_splatting")
+    if not vkgs:
+        sys.exit("vkgs not found: install it (see the top of this file), or pass --vkgs")
+    return vkgs
+
+
+def render_poses(ply, poses, names, size, out_dir, shformat=1, window=False, vkgs=None, no_render=False,
+                 image_format="jpg", settle_frames=1):
+    """Render camera-to-world poses (OpenCV axes, the exported PLY's frame) with vkgs, one image each,
+    into <out_dir>/frames/0000.jpg, 0001.jpg, ... Returns the frames folder.
+
+    Speed: vkgs saves each image on its main thread while the GPU waits, so the encoder matters.
+    JPEG (quality 90) encodes far faster than PNG; the MP4 re-encodes the frames anyway.
+    settle_frames is how many frames vkgs draws per camera before the image is saved."""
+    frames_dir = os.path.join(out_dir, "frames")
+    if not no_render:  # a dry run must not wipe frames from an earlier render
+        shutil.rmtree(frames_dir, ignore_errors=True)
+        os.makedirs(frames_dir)
+    os.makedirs(out_dir, exist_ok=True)
+    focal = 0.5 * size[1] / math.tan(math.radians(30))  # vkgs renders at 60 degrees vertical
+    cams_path = os.path.join(out_dir, "cameras_orbit.json")
+    with open(cams_path, "w") as f:
+        json.dump(inria_json(poses, names, size, focal), f)
+
+    # One SEQUENCE per frame. vkgs keeps its default camera at preset 0, so ours start at 1.
+    # A sequence's parameters run before its frames are rendered, so --saveImage there captures
+    # the previous sequence's camera: sequence k+1 saves frame k, and one last sequence saves the end.
+    cfg_path = os.path.join(out_dir, "orbit.cfg")
+    head = f"--sequenceframes {settle_frames}\n--sequenceaverages 1\n--sequenceresetframes 0\n"
+    with open(cfg_path, "w") as f:
+        f.write(f'SEQUENCE "setup"\n{head}--maxShDegree 3\n--saveImageBuffer 0\n')
+        for k in range(len(names) + 1):
+            f.write(f'\nSEQUENCE "{names[k] if k < len(names) else "final save"}"\n{head}')
+            if k > 0:
+                f.write(f"--saveImage {os.path.join(frames_dir, f'{k - 1:04d}.{image_format}')}\n")
+            if k < len(names):
+                f.write(f"--activateCameraPreset {k + 1}\n")
+    print(f"wrote {cams_path}\n      {cfg_path}")
+    if no_render:
+        return frames_dir
+
+    vkgs = find_vkgs(vkgs)
+    cmd = [vkgs, "--headless", "0" if window else "1", "--benchmark", "1",
+           "--size", str(size[0]), str(size[1]), "--shformat", str(shformat),
+           "--inputFile", ply, "--loadCameraPresets", cams_path, "--sequencefile", cfg_path]
+    print(" ".join(cmd))
+    log_path = os.path.join(out_dir, "vkgs.log")
+    with open(log_path, "w") as log:
+        rc = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT,
+                            cwd=os.path.dirname(os.path.realpath(vkgs))).returncode
+    saved = sorted(f for f in os.listdir(frames_dir) if f.endswith("." + image_format))
+    print(f"vkgs exit {rc}, {len(saved)}/{len(names)} frames (log: {log_path})")
+    if len(saved) != len(names):
+        sys.exit("missing frames; see the log")
+    # vkgs appends the buffer name (_main) to each file; make the names sequential for ffmpeg.
+    for f in saved:
+        os.rename(os.path.join(frames_dir, f), os.path.join(frames_dir, f"{f.split('_')[0].split('.')[0]}.{image_format}"))
+    return frames_dir
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("run_dir")
@@ -157,6 +220,8 @@ def main():
     p.add_argument("--gif_width", type=int, default=540)
     p.add_argument("--gif_fps", type=int, default=15)
     p.add_argument("--window", action="store_true", help="run vkgs with a visible window instead of headless")
+    p.add_argument("--settle_frames", type=int, default=1, help="frames vkgs draws per camera before saving (default 1)")
+    p.add_argument("--image_format", choices=["jpg", "png"], default="jpg", help="frame format (jpg encodes much faster)")
     p.add_argument("--no_render", action="store_true", help="only write the cameras and the sequence file")
     p.add_argument("--vkgs", help="vk_gaussian_splatting executable (default: $VKGS, else vkgs or "
                                   "vk_gaussian_splatting on PATH)")
@@ -171,11 +236,7 @@ def main():
 
     c2w_all, train, cams = load_cameras(run_dir)
     out_dir = os.path.join(run_dir, "orbit_check" if args.training_views else "orbit")
-    frames_dir = os.path.join(out_dir, "frames")
-    shutil.rmtree(frames_dir, ignore_errors=True)
-    os.makedirs(frames_dir)
-
-    focal = 0.5 * args.size[1] / math.tan(math.radians(30))  # vkgs renders at 60 degrees vertical
+    os.makedirs(out_dir, exist_ok=True)
     if args.training_views:
         poses = c2w_all
         names = [c["img_name"] for c in cams]
@@ -187,62 +248,37 @@ def main():
               f"{len(poses)} frames = {len(poses) / args.fps:.1f} s at {args.fps} fps "
               f"({360 * args.turns * args.fps / len(poses):.0f} deg/s)")
 
-    cams_path = os.path.join(out_dir, "cameras_orbit.json")
-    with open(cams_path, "w") as f:
-        json.dump(inria_json(poses, names, args.size, focal), f)
-
-    # One SEQUENCE per frame. vkgs keeps its default camera at preset 0, so ours start at 1.
-    # A sequence's parameters run before its frames are rendered, so --saveImage there captures
-    # the previous sequence's camera: sequence k+1 saves frame k, and one last sequence saves the end.
-    cfg_path = os.path.join(out_dir, "orbit.cfg")
-    head = "--sequenceframes 4\n--sequenceaverages 1\n--sequenceresetframes 0\n"
-    with open(cfg_path, "w") as f:
-        f.write(f'SEQUENCE "setup"\n{head}--maxShDegree 3\n--saveImageBuffer 0\n')
-        for k in range(len(names) + 1):
-            f.write(f'\nSEQUENCE "{names[k] if k < len(names) else "final save"}"\n{head}')
-            if k > 0:
-                f.write(f"--saveImage {os.path.join(frames_dir, f'{k - 1:04d}.png')}\n")
-            if k < len(names):
-                f.write(f"--activateCameraPreset {k + 1}\n")
-    print(f"wrote {cams_path}\n      {cfg_path}")
+    frames_dir = render_poses(ply, poses, names, args.size, out_dir, shformat=args.shformat,
+                              window=args.window, vkgs=args.vkgs, no_render=args.no_render,
+                              image_format=args.image_format, settle_frames=args.settle_frames)
     if args.no_render:
         return
-
-    vkgs = args.vkgs or os.environ.get("VKGS") or shutil.which("vkgs") or shutil.which("vk_gaussian_splatting")
-    if not vkgs:
-        sys.exit("vkgs not found: install it (see the top of this file), or pass --vkgs")
-    cmd = [vkgs, "--headless", "0" if args.window else "1", "--benchmark", "1",
-           "--size", str(args.size[0]), str(args.size[1]), "--shformat", str(args.shformat),
-           "--inputFile", ply, "--loadCameraPresets", cams_path, "--sequencefile", cfg_path]
-    print(" ".join(cmd))
-    log_path = os.path.join(out_dir, "vkgs.log")
-    with open(log_path, "w") as log:
-        rc = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT,
-                            cwd=os.path.dirname(os.path.realpath(vkgs))).returncode
-    pngs = sorted(f for f in os.listdir(frames_dir) if f.endswith(".png"))
-    print(f"vkgs exit {rc}, {len(pngs)}/{len(names)} frames (log: {log_path})")
-    if len(pngs) != len(names):
-        sys.exit("missing frames; see the log")
-
-    # vkgs appends the buffer name (_main) to each file; make the names sequential for ffmpeg.
-    for f in pngs:
-        os.rename(os.path.join(frames_dir, f), os.path.join(frames_dir, f.split("_")[0].split(".")[0] + ".png"))
     if args.training_views:
         return
-    src = os.path.join(frames_dir, "%04d.png")
-    mp4 = os.path.join(out_dir, f"{name}_orbit.mp4")
-    gif = os.path.join(out_dir, f"{name}_orbit.gif")
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(args.fps), "-i", src,
+    make_videos(frames_dir, out_dir, f"{name}_orbit", args.fps, args.gif_fps, args.gif_width)
+    refresh_links(run_dir)
+
+
+def make_videos(frames_dir, out_dir, base, fps=30, gif_fps=15, gif_width=540):
+    """frames/0000.jpg (or .png)... -> <out_dir>/<base>.mp4 (H.264) and <base>.gif (palette, looping)."""
+    ext = "jpg" if os.path.exists(os.path.join(frames_dir, "0000.jpg")) else "png"
+    src = os.path.join(frames_dir, f"%04d.{ext}")
+    mp4 = os.path.join(out_dir, f"{base}.mp4")
+    gif = os.path.join(out_dir, f"{base}.gif")
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(fps), "-i", src,
                     "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", mp4], check=True)
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(args.fps), "-i", src, "-vf",
-                    f"fps={args.gif_fps},scale={args.gif_width}:-1:flags=lanczos,split[a][b];"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(fps), "-i", src, "-vf",
+                    f"fps={gif_fps},scale={gif_width}:-1:flags=lanczos,split[a][b];"
                     "[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4",
                     "-loop", "0", gif], check=True)
     print(f"wrote {mp4}\n      {gif}")
+    return mp4, gif
 
-    # A run inside a results package (results/<name>_<run>/output/<name>/<run>): refresh the
-    # shortcuts at the top of results/ so <name>_orbit.mp4/.gif appear there.
-    parts = run_dir.split(os.sep)
+
+def refresh_links(run_dir):
+    """A run inside a results package (results/<name>_<run>/output/<name>/<run>): refresh the
+    shortcuts at the top of results/ (scripts/link_results.py) so new videos appear there."""
+    parts = os.path.abspath(run_dir).split(os.sep)
     if len(parts) >= 5 and parts[-3] == "output" and parts[-4] == f"{parts[-2]}_{parts[-1]}":
         from link_results import link_results
         link_results(os.sep.join(parts[:-4]))

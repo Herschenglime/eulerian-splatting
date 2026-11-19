@@ -76,6 +76,7 @@ python scripts/make_timelapse.py output/<scene>/<run>             # -> snapshots
 python scripts/export_ply.py <run>/point_cloud/iteration_N.ply out.ply [--min_opacity 0.005] [--sh_degree 0] [--max_radius 1000]
 python scripts/crop_ply.py in.ply out.ply --max_radius 1000      # any PLY, raw or exported
 python scripts/orbit_vkgs.py output/<name>/<run> [--seconds_per_turn 12] [--distance 1.3] [--elevation 20]   # turntable MP4/GIF of the export via NVIDIA vkgs (install notes in the script)
+python scripts/room_views_vkgs.py output/<name>/<run> pan [--at -0.6] [--height 0] [--pitch -8] [--tag T] | path [--speed 0.3] [--span 0 1]   # rooms: turn in place / fly the capture path
 python3 scripts/link_results.py [results_dir]                   # shortcuts at the top of results/: <name>.ply, _orbit.mp4/.gif, _timelapse.gif, _test_views.png, _run/ (auto after pull_results/orbit_vkgs)
 ```
 

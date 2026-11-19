@@ -8,6 +8,7 @@ A results package (scripts/pull_results.py) mirrors the repo, so its files sit 4
 This makes relative symlinks next to the packages, for the latest run of each <name>:
     <name>.ply              the final splat (standard 3DGS format, upright)
     <name>_orbit.mp4/.gif   the turntable from scripts/orbit_vkgs.py, if rendered
+    <name>_<tag>.mp4/.gif   any other render in <run>/<tag>/ (scripts/room_views_vkgs.py: pan, path)
     <name>_timelapse.gif    training from iteration 1 (snapshots/timelapse_view0.gif)
     <name>_test_views.png   held-out photos vs. renders at the last evaluation, if holdout was on
     <name>_run/             the run folder itself, for everything else
@@ -74,6 +75,11 @@ def targets(name, run_dir):
         "_test_views.png": last_test_grid(run_dir),
         "_run": run_dir,
     }
+    # Renders from orbit_vkgs.py / room_views_vkgs.py: <run>/<tag>/<name>_<tag>.mp4 and .gif
+    for video in sorted(glob.glob(os.path.join(run_dir, "*", f"{name}_*.mp4"))
+                        + glob.glob(os.path.join(run_dir, "*", f"{name}_*.gif"))):
+        if os.path.basename(os.path.dirname(video)) != "snapshots":
+            found.setdefault(os.path.basename(video)[len(name):], video)
     return {suffix: path for suffix, path in found.items() if path and os.path.exists(path)}
 
 
